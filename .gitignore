@@ -1,0 +1,6 @@
+# Build artifacts
+/wsbridge
+/wsbridge.exe
+*.test
+coverage.out
+coverage.html

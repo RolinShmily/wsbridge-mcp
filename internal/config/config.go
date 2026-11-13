@@ -1,0 +1,421 @@
+// Package config loads, validates, and writes the wsbridge TOML configuration.
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+const (
+	// DefaultListen binds the HTTP server to the loopback interface only.
+	DefaultListen = "127.0.0.1:8787"
+	// DefaultMaxSnapshotsPerGrant is the number of pre-write snapshots kept per Grant.
+	DefaultMaxSnapshotsPerGrant = 20
+)
+
+// Permission is the ordered workspace permission level granted to a session.
+type Permission string
+
+const (
+	PermRead  Permission = "read"
+	PermWrite Permission = "write"
+	PermCheck Permission = "check"
+)
+
+// Valid reports whether p is a supported permission level.
+func (p Permission) Valid() bool {
+	switch p {
+	case PermRead, PermWrite, PermCheck:
+		return true
+	default:
+		return false
+	}
+}
+
+// Workspace is one local directory exposed through the MCP tools.
+type Workspace struct {
+	Name    string     `toml:"name"`
+	Path    string     `toml:"path"`
+	MaxPerm Permission `toml:"max_perm"`
+	Checks  []string   `toml:"checks"`
+}
+
+// Config is the complete config.toml document.
+type Config struct {
+	PublicURL            string      `toml:"public_url"`
+	Listen               string      `toml:"listen"`
+	DataDir              string      `toml:"data_dir"`
+	AllowRedirectHosts   []string    `toml:"allow_redirect_hosts"`
+	DenyPatterns         []string    `toml:"deny_patterns"`
+	MaxSnapshotsPerGrant int         `toml:"max_snapshots_per_grant"`
+	Workspaces           []Workspace `toml:"workspace"`
+
+	// path is the absolute path this configuration was loaded from or saved to.
+	path string
+}
+
+// LoadOptions controls validation that is intentionally relaxed for local tests.
+type LoadOptions struct {
+	// AllowHTTPPublicURL permits an http:// public_url. It is meant for
+	// loopback-based end-to-end tests only; production configurations must be HTTPS.
+	AllowHTTPPublicURL bool
+}
+
+var workspaceNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+var knownChecks = map[string]bool{
+	"git_status": true,
+	"git_diff":   true,
+	"go_vet":     true,
+	"go_test":    true,
+	"npm_lint":   true,
+	"npm_test":   true,
+}
+
+// DefaultPath returns <os.UserConfigDir()>/wsbridge/config.toml.
+func DefaultPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("config: resolve user config dir: %w", err)
+	}
+	return filepath.Join(dir, "wsbridge", "config.toml"), nil
+}
+
+// Load reads and validates the TOML file at path, applying defaults.
+func Load(path string) (*Config, error) {
+	return LoadWithOptions(path, LoadOptions{})
+}
+
+// LoadWithOptions reads and validates the TOML file at path with explicit options.
+func LoadWithOptions(path string, opts LoadOptions) (*Config, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: resolve path %q: %w", path, err)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %q: %w", abs, err)
+	}
+	var cfg Config
+	dec := toml.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		var missing *toml.StrictMissingError
+		if errors.As(err, &missing) {
+			keys := make([]string, 0, len(missing.Errors))
+			for i := range missing.Errors {
+				keys = append(keys, strings.Join(missing.Errors[i].Key(), "."))
+			}
+			return nil, fmt.Errorf("config: parse %q: unknown configuration keys: %s", abs, strings.Join(keys, ", "))
+		}
+		return nil, fmt.Errorf("config: parse %q: %w", abs, err)
+	}
+	cfg.path = abs
+	if err := cfg.ValidateWith(opts); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// ConfigPath returns the absolute path this Config was loaded from or saved to.
+func (c *Config) ConfigPath() string { return c.path }
+
+// ResolvedDataDir returns the configured data directory, defaulting to the
+// directory that holds config.toml.
+func (c *Config) ResolvedDataDir() (string, error) {
+	if c.DataDir != "" {
+		return filepath.Clean(c.DataDir), nil
+	}
+	if c.path == "" {
+		return "", fmt.Errorf("config: data_dir is not set and config path is unknown")
+	}
+	return filepath.Dir(c.path), nil
+}
+
+// Validate applies defaults and checks the configuration. It requires an
+// HTTPS public_url; use ValidateWith to allow http:// for loopback tests.
+func (c *Config) Validate() error {
+	return c.ValidateWith(LoadOptions{})
+}
+
+// ValidateWith applies defaults and checks the configuration.
+func (c *Config) ValidateWith(opts LoadOptions) error {
+	c.normalize()
+	if err := c.validatePublicURL(opts); err != nil {
+		return err
+	}
+	if err := validateListen(c.Listen); err != nil {
+		return err
+	}
+	if c.DataDir != "" && !filepath.IsAbs(c.DataDir) {
+		return fmt.Errorf("config: data_dir %q must be an absolute path", c.DataDir)
+	}
+	if c.MaxSnapshotsPerGrant < 0 {
+		return fmt.Errorf("config: max_snapshots_per_grant must be >= 0")
+	}
+	if err := validateRedirectHosts(c.AllowRedirectHosts); err != nil {
+		return err
+	}
+	if err := validateDenyPatterns(c.DenyPatterns); err != nil {
+		return err
+	}
+	return validateWorkspaces(c.Workspaces)
+}
+
+func (c *Config) normalize() {
+	c.PublicURL = strings.TrimSpace(c.PublicURL)
+	c.Listen = strings.TrimSpace(c.Listen)
+	c.DataDir = strings.TrimSpace(c.DataDir)
+	if c.Listen == "" {
+		c.Listen = DefaultListen
+	}
+	if c.MaxSnapshotsPerGrant == 0 {
+		c.MaxSnapshotsPerGrant = DefaultMaxSnapshotsPerGrant
+	}
+	for i := range c.AllowRedirectHosts {
+		c.AllowRedirectHosts[i] = strings.TrimSpace(c.AllowRedirectHosts[i])
+	}
+	for i := range c.Workspaces {
+		c.Workspaces[i].Name = strings.TrimSpace(c.Workspaces[i].Name)
+		c.Workspaces[i].Path = strings.TrimSpace(c.Workspaces[i].Path)
+		c.Workspaces[i].MaxPerm = Permission(strings.TrimSpace(string(c.Workspaces[i].MaxPerm)))
+	}
+}
+
+func (c *Config) validatePublicURL(opts LoadOptions) error {
+	raw := c.PublicURL
+	if raw == "" {
+		return fmt.Errorf("config: public_url is required")
+	}
+	if strings.ContainsAny(raw, "?#") {
+		return fmt.Errorf("config: public_url must not contain a path, query, or fragment")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		// url.Error embeds the raw URL, which may contain credentials; never
+		// echo it back through logs or stderr.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) && urlErr.Err != nil {
+			return fmt.Errorf("config: public_url is invalid: %v", urlErr.Err)
+		}
+		return fmt.Errorf("config: public_url is invalid")
+	}
+	if u.Scheme == "" || u.Host == "" || u.Hostname() == "" {
+		return fmt.Errorf("config: public_url must be an absolute URL with a host")
+	}
+	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("config: public_url must not contain userinfo, a path, query, or fragment")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	switch {
+	case scheme == "https":
+		return nil
+	case scheme == "http" && opts.AllowHTTPPublicURL:
+		if !isLoopbackListen(c.Listen) {
+			return fmt.Errorf("config: public_url may use http:// only when listen is a loopback address (got %q)", c.Listen)
+		}
+		return nil
+	default:
+		return fmt.Errorf("config: public_url must use https:// (got scheme %q)", scheme)
+	}
+}
+
+func isLoopbackListen(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func validateListen(listen string) error {
+	if listen == "" {
+		return fmt.Errorf("config: listen is required")
+	}
+	_, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("config: listen %q must be host:port: %w", listen, err)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("config: listen %q has an invalid port", listen)
+	}
+	return nil
+}
+
+func validateRedirectHosts(hosts []string) error {
+	for i, host := range hosts {
+		switch {
+		case host == "":
+			return fmt.Errorf("config: allow_redirect_hosts[%d] is empty", i)
+		case strings.Contains(host, "://"),
+			strings.ContainsAny(host, "/\\?#"),
+			strings.ContainsAny(host, " \t\r\n"):
+			return fmt.Errorf("config: allow_redirect_hosts[%d] %q must be a bare host name", i, host)
+		}
+	}
+	return nil
+}
+
+func validateDenyPatterns(patterns []string) error {
+	for i, p := range patterns {
+		if p == "" {
+			return fmt.Errorf("config: deny_patterns[%d] is empty", i)
+		}
+		if _, err := path.Match(p, ""); err != nil {
+			return fmt.Errorf("config: deny_patterns[%d] %q is not a valid glob: %w", i, p, err)
+		}
+	}
+	return nil
+}
+
+func validateWorkspaces(workspaces []Workspace) error {
+	seen := make(map[string]bool, len(workspaces))
+	for i, ws := range workspaces {
+		if ws.Name == "" {
+			return fmt.Errorf("config: workspace[%d]: name is required", i)
+		}
+		if ws.Name == "." || ws.Name == ".." || !workspaceNameRE.MatchString(ws.Name) {
+			return fmt.Errorf("config: workspace[%d]: name %q must match [a-zA-Z0-9._-]+ and must not be '.' or '..'", i, ws.Name)
+		}
+		if seen[ws.Name] {
+			return fmt.Errorf("config: workspace[%d]: duplicate name %q", i, ws.Name)
+		}
+		seen[ws.Name] = true
+
+		if !filepath.IsAbs(ws.Path) {
+			return fmt.Errorf("config: workspace %q: path %q must be absolute", ws.Name, ws.Path)
+		}
+		info, err := os.Stat(ws.Path)
+		if err != nil {
+			return fmt.Errorf("config: workspace %q: path %q is not accessible: %w", ws.Name, ws.Path, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("config: workspace %q: path %q is not a directory", ws.Name, ws.Path)
+		}
+		if !ws.MaxPerm.Valid() {
+			return fmt.Errorf("config: workspace %q: invalid max_perm %q (want read, write, or check)", ws.Name, ws.MaxPerm)
+		}
+		for _, check := range ws.Checks {
+			if !knownChecks[check] {
+				return fmt.Errorf("config: workspace %q: unknown check %q", ws.Name, check)
+			}
+		}
+	}
+	return nil
+}
+
+// Save validates nothing and writes the configuration atomically to path with
+// mode 0600, creating parent directories with mode 0700.
+func (c *Config) Save(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("config: resolve path %q: %w", path, err)
+	}
+	data, err := toml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("config: encode TOML: %w", err)
+	}
+	if err := writeFileAtomic(abs, data); err != nil {
+		return err
+	}
+	c.path = abs
+	return nil
+}
+
+// WriteExample writes the documented example config.toml to path atomically.
+func WriteExample(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("config: resolve path %q: %w", path, err)
+	}
+	return writeFileAtomic(abs, []byte(ExampleTOML))
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("config: create directory %q: %w", dir, err)
+	}
+	f, err := os.CreateTemp(dir, ".wsbridge-config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("config: create temporary file in %q: %w", dir, err)
+	}
+	tmp := f.Name()
+	defer func() {
+		_ = os.Remove(tmp)
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("config: chmod temporary file: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("config: write temporary file: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("config: sync temporary file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("config: close temporary file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("config: replace %q: %w", path, err)
+	}
+	return nil
+}
+
+// ExampleTOML is the initial config.toml written by "wsbridge init". It is
+// syntactically valid; the user must review public_url and add workspaces.
+const ExampleTOML = `# wsbridge configuration
+#
+# Review every value below before starting the service.
+# public_url MUST be the stable HTTPS origin of your tunnel and must not
+# contain a trailing slash or a path (for example: https://my-box.tail1234.ts.net).
+
+public_url = "https://my-box.tail1234.ts.net"
+
+# Local listen address. Keep it on the loopback interface; the public tunnel
+# forwards to this address.
+listen = "127.0.0.1:8787"
+
+# Directory for wsbridge.db, audit.jsonl, and snapshots/.
+# Leave empty to use the directory that contains this file.
+data_dir = ""
+
+# Extra OAuth redirect hosts (exact host names added to the built-in allowlist).
+allow_redirect_hosts = []
+
+# Extra sensitive-file globs appended to the built-in denylist.
+# .git and .ssh are always blocked and cannot be re-enabled.
+deny_patterns = []
+
+# Maximum number of pre-write snapshots kept per Grant.
+max_snapshots_per_grant = 20
+
+# Add one [[workspace]] block per local directory you want to expose.
+# name must be unique and match [a-zA-Z0-9._-]+; path must be an absolute
+# existing directory; max_perm is "read", "write", or "check".
+#
+# [[workspace]]
+# name = "myapp"
+# path = "/home/me/code/myapp"
+# max_perm = "write"
+# checks = ["git_status", "git_diff"]
+`
