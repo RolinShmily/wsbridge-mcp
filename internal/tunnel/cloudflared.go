@@ -168,6 +168,7 @@ func waitTCPReady(ctx context.Context, addr string) error {
 
 func runCloudflaredOnce(ctx context.Context, binary string, args, extraEnv []string, logLine func(string)) error {
 	cmd := exec.CommandContext(ctx, binary, args...)
+	configureCloudflaredCommand(cmd)
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}

@@ -1,0 +1,14 @@
+//go:build linux
+
+package tunnel
+
+import (
+	"os/exec"
+	"syscall"
+)
+
+func configureCloudflaredCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Pdeathsig: syscall.SIGTERM,
+	}
+}
