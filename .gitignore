@@ -1,6 +1,7 @@
 # Build artifacts
 /wsbridge
 /wsbridge.exe
+/dist/
 *.test
 coverage.out
 coverage.html

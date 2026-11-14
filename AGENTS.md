@@ -24,7 +24,7 @@
 6. **测试与验证规范**：`docs/development/03-testing-and-ci.md`
 
 ## 3. 不可逾越的工程红线
-1. **Go 版本与静态编译**：`go.mod` 必须声明 `go 1.25`（依赖 `os.Root.ReadFile` / `WriteFile` / `Rename`），所有构建均需在 `CGO_ENABLED=0` 下通过。
+1. **Go 版本与静态编译**：`go.mod` 必须要求 Go ≥ 1.25（依赖 `os.Root.ReadFile` / `WriteFile` / `Rename`）。Go 工具链会把 `go 1.25` 规范化为补丁版本（如 `go 1.25.0`），这是允许且预期的；更高版本的 1.25.x 补丁同样可用。所有构建均需在 `CGO_ENABLED=0` 下通过。
 2. **依赖白名单冻结**：仅允许引入以下 5 个外部依赖，其余一律使用 Go 标准库（严禁引入 `cobra`、`gin`、`chi`、`fosite` 等）：
    - `github.com/modelcontextprotocol/go-sdk`
    - `go.etcd.io/bbolt`
