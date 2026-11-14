@@ -35,7 +35,10 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     files:
+      - LICENSE
       - README.md
+      - README.zh-CN.md
+      - CHANGELOG.md
 
 checksum:
   name_template: checksums.txt
@@ -52,4 +55,4 @@ changelog:
       - "^ci:"
 
 release:
-  draft: true
+  draft: false

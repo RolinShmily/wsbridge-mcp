@@ -1,0 +1,37 @@
+name: Bug Report
+description: Report a bug or compatibility issue with wsbridge
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the issue and include sanitized logs if applicable.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: wsbridge version & OS
+      placeholder: "v0.1.0 / Linux amd64"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: AI Platform / Tunnel
+      options:
+        - ChatGPT
+        - Gemini
+        - Claude
+        - Other / Local CLI
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands run, config structure (redact any domains/paths), and doctor output.
+    validations:
+      required: true
