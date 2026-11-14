@@ -8,76 +8,53 @@
 <style>
   :root {
     color-scheme: light;
-    --bg: #eef1f5;
+    --bg: #f4f4f5;
     --card: #ffffff;
-    --text: #16202b;
-    --muted: #5a6672;
-    --border: #d5dce4;
-    --input-bg: #f7f9fb;
-    --accent: #1d4ed8;
-    --on-accent: #ffffff;
-    --focus: #1d4ed8;
-    --trust-bg: #f4f7fd;
-    --trust-border: #2f5fd0;
-    --chip-bg: #e8eefb;
-    --chip-text: #17408f;
-    --badge-bg: #eef1f5;
-    --badge-text: #3d4a58;
-    --read: #17663f;
-    --read-bg: #e7f6ed;
-    --read-border: #2f9e5f;
-    --write: #7a4a00;
-    --write-bg: #fff3da;
-    --write-border: #c4870a;
-    --check: #8f2c14;
-    --check-bg: #ffe9e1;
-    --check-border: #cf4a2c;
-    --danger-text: #8f1d0b;
-    --danger-bg: #fdeceb;
-    --danger-border: #d9534f;
-    --lock-text: #6f4300;
-    --lock-bg: #fff5e0;
-    --lock-border: #d9a514;
+    --surface: #fafafa;
+    --surface-hover: #f4f4f5;
+    --text: #18181b;
+    --muted: #52525b;
+    --subtle: #71717a;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --primary: #18181b;
+    --primary-hover: #27272a;
+    --on-primary: #ffffff;
+    --focus: #18181b;
+    --badge-bg: #f4f4f5;
+    --badge-border: #d4d4d8;
+    --badge-text: #27272a;
+    --danger-bg: #fafafa;
+    --danger-border: #52525b;
+    --danger-text: #18181b;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --bg: #0d1218;
-      --card: #151b23;
-      --text: #e6ecf3;
-      --muted: #9aa7b5;
-      --border: #2a3440;
-      --input-bg: #0f151c;
-      --accent: #8ab4ff;
-      --on-accent: #0a1526;
-      --focus: #8ab4ff;
-      --trust-bg: #101a2b;
-      --trust-border: #5b8def;
-      --chip-bg: #1b2942;
-      --chip-text: #bcd2ff;
-      --badge-bg: #1e2733;
-      --badge-text: #c2ccd8;
-      --read: #8ef0b0;
-      --read-bg: #12301e;
-      --read-border: #2f9e5f;
-      --write: #ffd479;
-      --write-bg: #2e2309;
-      --write-border: #c4870a;
-      --check: #ffab8f;
-      --check-bg: #301710;
-      --check-border: #cf4a2c;
-      --danger-text: #ffb4ab;
-      --danger-bg: #2e1414;
-      --danger-border: #b3403c;
-      --lock-text: #ffd88a;
-      --lock-bg: #2c220a;
-      --lock-border: #b88a1f;
+      --bg: #09090b;
+      --card: #18181b;
+      --surface: #111113;
+      --surface-hover: #27272a;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --subtle: #71717a;
+      --border: #27272a;
+      --border-strong: #3f3f46;
+      --primary: #f4f4f5;
+      --primary-hover: #e4e4e7;
+      --on-primary: #09090b;
+      --focus: #f4f4f5;
+      --badge-bg: #27272a;
+      --badge-border: #3f3f46;
+      --badge-text: #e4e4e7;
+      --danger-bg: #111113;
+      --danger-border: #71717a;
+      --danger-text: #f4f4f5;
     }
   }
 
   * { box-sizing: border-box; }
-
   html { -webkit-text-size-adjust: 100%; }
 
   body {
@@ -87,424 +64,440 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    padding: 20px 16px;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-    font-size: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
     line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
     overflow-wrap: break-word;
   }
 
   .card {
     width: 100%;
     max-width: 480px;
-    padding: 24px;
+    padding: 28px;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 14px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
   }
 
   .page-head {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    padding-bottom: 16px;
+    gap: 14px;
+    padding-bottom: 18px;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
-  }
-
-  .shield {
-    flex: 0 0 auto;
-    color: var(--trust-border);
-    margin-top: 2px;
-  }
-
-  .page-head h1 {
-    font-size: 1.15rem;
-    line-height: 1.35;
-    margin: 0 0 4px;
-  }
-
-  .page-sub {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .trust {
-    padding: 12px 14px;
-    background: var(--trust-bg);
-    border: 2px solid var(--trust-border);
-    border-radius: 10px;
     margin-bottom: 18px;
   }
 
-  .trust h2 {
-    font-size: 0.9rem;
-    margin: 0 0 8px;
-  }
-
-  .trust-list { margin: 0; padding: 0; }
-
-  .trust-row {
+  .brand-icon {
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
     display: flex;
-    gap: 10px;
-    padding: 3px 0;
-    align-items: baseline;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
   }
 
-  .trust-row dt {
-    flex: 0 0 46%;
+  .page-head h1 {
     margin: 0;
-    font-size: 0.82rem;
+    font-size: 1.15rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+
+  .page-sub {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .trust {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+
+  .trust-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    font-size: 0.8rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--muted);
   }
 
-  .trust-row dd {
-    flex: 1 1 auto;
+  .trust-list {
     margin: 0;
-    font-size: 0.86rem;
-    min-width: 0;
+    display: grid;
+    gap: 8px;
   }
 
-  .trust-strong { font-weight: 700; }
+  .trust-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .trust-row dt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.86rem;
+  }
+
+  .trust-row dd {
+    margin: 0;
+    font-size: 0.9rem;
+    text-align: right;
+  }
+
+  .trust-strong {
+    font-weight: 650;
+    color: var(--text);
+  }
 
   .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.84rem;
   }
 
   .chips {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 5px;
+    justify-content: flex-end;
   }
 
   .chip {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: 999px;
-    background: var(--chip-bg);
-    color: var(--chip-text);
-    border: 1px solid var(--trust-border);
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.76rem;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: var(--badge-bg);
+    border: 1px solid var(--badge-border);
+    color: var(--badge-text);
   }
 
-  details { margin-top: 10px; }
+  details {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
 
   summary {
     cursor: pointer;
     font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--trust-border);
-    width: fit-content;
+    color: var(--muted);
+    user-select: none;
   }
 
   .uri {
     display: block;
     margin-top: 8px;
     padding: 8px 10px;
-    background: var(--input-bg);
+    border-radius: 6px;
+    background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 0.76rem;
-    line-height: 1.4;
-    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
     word-break: break-all;
+    color: var(--muted);
   }
 
   .banner {
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid;
-    font-size: 0.86rem;
-    line-height: 1.45;
-    margin-bottom: 14px;
-  }
-
-  .banner-error {
-    color: var(--danger-text);
-    background: var(--danger-bg);
-    border-color: var(--danger-border);
-  }
-
-  .banner-locked {
-    color: var(--lock-text);
-    background: var(--lock-bg);
-    border-color: var(--lock-border);
-  }
-
-  fieldset {
-    border: 0;
-    margin: 0 0 18px;
-    padding: 0;
-    min-width: 0;
-  }
-
-  legend {
-    padding: 0;
-    margin: 0 0 8px;
-    font-size: 0.92rem;
-    font-weight: 700;
-  }
-
-  .hint {
-    margin: 6px 0 10px;
-    font-size: 0.8rem;
-    color: var(--muted);
-    line-height: 1.45;
-  }
-
-  .ws-option {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--card);
-    cursor: pointer;
+    padding: 11px 13px;
+    border-radius: 9px;
+    margin-bottom: 16px;
+    font-size: 0.88rem;
+    border: 1px solid var(--danger-border);
+    background: var(--danger-bg);
+    color: var(--danger-text);
   }
 
-  .ws-option:hover { border-color: var(--trust-border); }
+  .banner svg { flex: 0 0 auto; margin-top: 2px; }
 
-  .ws-option:focus-within {
-    border-color: var(--focus);
-    box-shadow: 0 0 0 1px var(--focus);
+  fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0 0 18px;
   }
 
-  .ws-check {
-    flex: 0 0 auto;
-    width: 18px;
-    height: 18px;
-    margin: 2px 0 0;
-    accent-color: var(--accent);
-  }
-
-  .ws-info {
+  legend {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    gap: 7px;
+    padding: 0;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    font-weight: 650;
+    color: var(--text);
+  }
+
+  .hint {
+    margin: 4px 0 8px;
+    font-size: 0.82rem;
+    color: var(--subtle);
+  }
+
+  .ws-option,
+  .perm-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .ws-option:hover,
+  .perm-option:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-hover);
+  }
+
+  .ws-option:has(input:checked),
+  .perm-option:has(input:checked) {
+    border-color: var(--text);
+    background: var(--card);
+  }
+
+  .ws-check,
+  .perm-option input[type="radio"] {
+    margin: 3px 0 0;
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+  }
+
+  .ws-info,
+  .perm-body {
+    flex: 1 1 auto;
     min-width: 0;
   }
 
   .ws-head {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     flex-wrap: wrap;
+  }
+
+  .ws-name,
+  .perm-title {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .ws-name {
     font-weight: 600;
     font-size: 0.92rem;
-  }
-
-  .ws-path {
-    color: var(--muted);
-    font-size: 0.78rem;
-    word-break: break-all;
+    color: var(--text);
   }
 
   .perm-badge {
-    display: inline-block;
-    padding: 0 7px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    padding: 2px 7px;
+    border-radius: 5px;
     background: var(--badge-bg);
+    border: 1px solid var(--badge-border);
     color: var(--badge-text);
-    font-size: 0.72rem;
-    font-weight: 600;
   }
 
-  .perm-option {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    border: 1px solid var(--border);
-    border-left-width: 4px;
-    border-radius: 10px;
-    cursor: pointer;
+  .ws-path {
+    display: block;
+    margin-top: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    word-break: break-all;
   }
-
-  .perm-option:hover { filter: brightness(0.98); }
-
-  .perm-option:focus-within {
-    border-color: var(--focus);
-    box-shadow: 0 0 0 1px var(--focus);
-  }
-
-  .perm-read { border-left-color: var(--read-border); }
-  .perm-write { border-left-color: var(--write-border); }
-  .perm-check { border-left-color: var(--check-border); }
-
-  .perm-option input[type="radio"] {
-    flex: 0 0 auto;
-    width: 18px;
-    height: 18px;
-    margin: 2px 0 0;
-    accent-color: var(--accent);
-  }
-
-  .perm-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .perm-title {
-    font-weight: 700;
-    font-size: 0.9rem;
-  }
-
-  .perm-read .perm-title { color: var(--read); }
-  .perm-write .perm-title { color: var(--write); }
-  .perm-check .perm-title { color: var(--check); }
 
   .perm-desc {
-    font-size: 0.82rem;
+    display: block;
+    margin-top: 2px;
+    font-size: 0.83rem;
     color: var(--muted);
   }
 
   .tag {
-    display: inline-block;
-    padding: 0 7px;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    background: var(--read-bg);
-    color: var(--read);
-    border: 1px solid var(--read-border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.74rem;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    padding: 0 5px;
+    border-radius: 4px;
+    margin-left: 4px;
   }
 
-  .field { display: block; }
+  .field {
+    display: block;
+  }
 
   .field-label {
     display: block;
+    font-size: 0.84rem;
+    color: var(--muted);
     margin-bottom: 6px;
-    font-size: 0.86rem;
-    font-weight: 600;
   }
 
   select,
   input[type="password"] {
     width: 100%;
     padding: 10px 12px;
-    background: var(--input-bg);
-    color: var(--text);
-    border: 1px solid var(--border);
     border-radius: 8px;
-    font-family: inherit;
-    font-size: 1rem;
-    line-height: 1.35;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.95rem;
   }
 
-  select:focus-visible,
-  input:focus-visible,
+  select:focus,
+  input[type="password"]:focus,
   button:focus-visible,
   summary:focus-visible {
-    outline: 3px solid var(--focus);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 
-  .actions { margin-top: 20px; }
+  .actions {
+    margin-top: 18px;
+  }
 
   .btn {
-    display: block;
     width: 100%;
-    padding: 12px 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 16px;
     border-radius: 9px;
-    font-family: inherit;
-    font-size: 0.95rem;
-    font-weight: 700;
+    font: inherit;
+    font-size: 0.94rem;
+    font-weight: 600;
     cursor: pointer;
-    text-align: center;
+    border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
   }
 
   .btn-approve {
-    border: 1px solid transparent;
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--primary);
+    color: var(--on-primary);
   }
 
-  .btn-approve:hover:not(:disabled) { filter: brightness(0.94); }
+  .btn-approve:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
 
-  .btn:disabled {
-    opacity: 0.55;
+  .btn-approve:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
   }
 
-  .deny-form { margin-top: 8px; }
+  .deny-form {
+    margin-top: 8px;
+  }
 
   .btn-deny {
-    border: 1px solid var(--border);
     background: transparent;
-    color: var(--text);
+    color: var(--muted);
+    border-color: var(--border-strong);
   }
 
-  .btn-deny:hover { background: var(--input-bg); }
+  .btn-deny:hover {
+    color: var(--text);
+    border-color: var(--text);
+  }
 
   .page-foot {
-    margin: 16px 0 0;
-    font-size: 0.74rem;
-    color: var(--muted);
-    text-align: center;
-  }
-
-  @media (max-width: 420px) {
-    body {
-      padding: 10px;
-      align-items: flex-start;
-    }
-
-    .card {
-      padding: 18px;
-      border-radius: 12px;
-    }
-
-    .trust-row {
-      flex-direction: column;
-      gap: 0;
-    }
-
-    .trust-row dt { flex-basis: auto; }
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: var(--subtle);
   }
 </style>
 </head>
 <body>
 <main class="card">
   <header class="page-head">
-    <svg class="shield" viewBox="0 0 24 24" width="34" height="34" aria-hidden="true" focusable="false">
-      <path d="M12 2 4 5v6c0 5 3.4 9.1 8 10 4.6-.9 8-5 8-10V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path>
-      <path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-    </svg>
+    <div class="brand-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 4 5v6c0 5 3.4 9.1 8 10 4.6-.9 8-5 8-10V5l-8-3Z"/>
+        <path d="m9 12 2 2 4-4"/>
+      </svg>
+    </div>
     <div>
-      <h1>wsbridge local workspace authorization</h1>
-      <p class="page-sub">A local bridge is requesting access to workspaces on this machine.</p>
+      <h1>Authorize wsbridge</h1>
+      <p class="page-sub">Grant scoped access to local workspaces on this machine.</p>
     </div>
   </header>
 
   <section class="trust" aria-labelledby="trust-heading">
-    <h2 id="trust-heading">Verify the requesting application</h2>
+    <h2 id="trust-heading" class="trust-head">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <path d="M9 9h6v6H9z"/>
+      </svg>
+      Requesting Application
+    </h2>
     <dl class="trust-list">
       <div class="trust-row">
-        <dt>Requesting application</dt>
+        <dt>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+          Client
+        </dt>
         <dd class="trust-strong">{{.ClientName}}</dd>
       </div>
       <div class="trust-row">
-        <dt>Callback host</dt>
+        <dt>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          Callback host
+        </dt>
         <dd class="mono">{{.RedirectHost}}</dd>
       </div>
       <div class="trust-row">
-        <dt>Requested scopes</dt>
+        <dt>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Scopes
+        </dt>
         <dd class="chips">{{range .RequestedScopes}}<span class="chip">{{.}}</span>{{end}}</dd>
       </div>
     </dl>
@@ -515,11 +508,23 @@
   </section>
 
   {{if .ErrorMessage}}
-  <div class="banner banner-error" role="alert">{{.ErrorMessage}}</div>
+  <div class="banner" role="alert">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 8v4M12 16h.01"/>
+    </svg>
+    <span>{{.ErrorMessage}}</span>
+  </div>
   {{end}}
 
   {{if .LockedSeconds}}
-  <div class="banner banner-locked" role="alert">Too many failed attempts. Try again in {{.LockedSeconds}} seconds.</div>
+  <div class="banner" role="alert">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    <span>Too many failed attempts. Try again in {{.LockedSeconds}} seconds.</span>
+  </div>
   {{end}}
 
   <form method="POST" action="/oauth/authorize">
@@ -527,50 +532,84 @@
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
     <fieldset>
-      <legend>1. Workspaces to allow</legend>
-      <p class="hint">Select at least one workspace. The server checks this selection, and this page does not rely on JavaScript.</p>
+      <legend>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        1. Workspaces
+      </legend>
       {{range .Workspaces}}
       <label class="ws-option">
         <input class="ws-check" type="checkbox" name="workspaces" value="{{.Name}}" {{if .Checked}}checked{{end}}>
         <span class="ws-info">
           <span class="ws-head">
             <span class="ws-name">{{.Name}}</span>
-            <span class="perm-badge">Config limit: {{.MaxPerm}}</span>
+            <span class="perm-badge">max: {{.MaxPerm}}</span>
           </span>
           <span class="ws-path">{{.Path}}</span>
         </span>
       </label>
       {{end}}
-      <p class="hint">Each workspace's effective permission never exceeds its configured max_perm limit.</p>
+      <p class="hint">Effective permission never exceeds each workspace's configured max_perm.</p>
     </fieldset>
 
     <fieldset>
-      <legend>2. Permission for this session</legend>
-      <label class="perm-option perm-read">
+      <legend>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        2. Session Permission
+      </legend>
+      <label class="perm-option">
         <input type="radio" name="permission" value="read" checked>
         <span class="perm-body">
-          <span class="perm-title">Read only (read)</span>
-          <span class="perm-desc">&mdash; browse, search, and read files <span class="tag">[Recommended]</span></span>
+          <span class="perm-title">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Read only (read)
+            <span class="tag">Recommended</span>
+          </span>
+          <span class="perm-desc">Browse, search, and read files.</span>
         </span>
       </label>
-      <label class="perm-option perm-write">
+      <label class="perm-option">
         <input type="radio" name="permission" value="write">
         <span class="perm-body">
-          <span class="perm-title">Read + write (write)</span>
-          <span class="perm-desc">&mdash; edit and create files; snapshots are taken before writes</span>
+          <span class="perm-title">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            Read + write (write)
+          </span>
+          <span class="perm-desc">Edit and create files with pre-write snapshots.</span>
         </span>
       </label>
-      <label class="perm-option perm-check">
+      <label class="perm-option">
         <input type="radio" name="permission" value="check">
         <span class="perm-body">
-          <span class="perm-title">Read + write + checks (check)</span>
-          <span class="perm-desc">&mdash; also run whitelisted local check commands</span>
+          <span class="perm-title">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="4 17 10 11 4 5"/>
+              <line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+            Read + write + checks (check)
+          </span>
+          <span class="perm-desc">Also run whitelisted local check commands.</span>
         </span>
       </label>
     </fieldset>
 
     <fieldset>
-      <legend>3. Authorization lifetime</legend>
+      <legend>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        3. Lifetime
+      </legend>
       <label class="field">
         <span class="field-label">Expires after</span>
         <select name="ttl_hours">
@@ -583,26 +622,49 @@
     </fieldset>
 
     <fieldset>
-      <legend>4. Administrator passphrase</legend>
+      <legend>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        4. Administrator Passphrase
+      </legend>
       <label class="field">
-        <span class="field-label">Local wsbridge administrator password</span>
+        <span class="field-label">Local wsbridge administrator passphrase</span>
         <input name="passphrase" type="password" required minlength="10" autocomplete="current-password" spellcheck="false" autocapitalize="off" aria-describedby="passphrase-hint">
       </label>
-      <p class="hint" id="passphrase-hint">Verified locally with argon2id. The passphrase is never logged or stored.</p>
+      <p class="hint" id="passphrase-hint">Verified locally with Argon2id. Never logged or stored in plaintext.</p>
     </fieldset>
 
     <div class="actions">
-      <button type="submit" class="btn btn-approve" name="action" value="approve" {{if .LockedSeconds}}disabled{{end}}>Approve and connect</button>
+      <button type="submit" class="btn btn-approve" name="action" value="approve" {{if .LockedSeconds}}disabled{{end}}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Approve and connect
+      </button>
     </div>
   </form>
 
   <form class="deny-form" method="POST" action="/oauth/authorize">
     <input type="hidden" name="auth_req_id" value="{{.AuthRequestID}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-    <button type="submit" class="btn btn-deny" name="action" value="deny" formnovalidate>Deny and close</button>
+    <button type="submit" class="btn btn-deny" name="action" value="deny" formnovalidate>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+      Deny and close
+    </button>
   </form>
 
-  <p class="page-foot">Served locally by wsbridge. No external resources are loaded.</p>
+  <p class="page-foot">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    Served locally by wsbridge. No external resources loaded.
+  </p>
 </main>
 </body>
 </html>
