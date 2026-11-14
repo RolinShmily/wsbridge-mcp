@@ -729,3 +729,21 @@ func TestPKCEHelpers(t *testing.T) {
 		t.Error("invalid verifier accepted")
 	}
 }
+
+func TestAuthorizeCSPAllowsExternalRedirect(t *testing.T) {
+	env := newTestEnv(t)
+	clientID := env.registerClient()
+	_, challenge := pkcePair(t)
+	u := env.server.URL + "/oauth/authorize?response_type=code&client_id=" + url.QueryEscape(clientID) +
+		"&redirect_uri=" + url.QueryEscape("https://chatgpt.com/connector_platform_oauth_redirect") +
+		"&scope=mcp:tools&code_challenge=" + challenge + "&code_challenge_method=S256"
+	resp, err := env.client.Get(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	csp := resp.Header.Get("Content-Security-Policy")
+	if strings.Contains(csp, "form-action 'self'") {
+		t.Fatalf("CSP %q restricts form-action to 'self', which blocks 302 OAuth callback redirects in Chromium", csp)
+	}
+}

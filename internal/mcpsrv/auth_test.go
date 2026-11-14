@@ -143,11 +143,7 @@ func initialize(t *testing.T, client *http.Client, base, token string) string {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("initialize status = %d", resp.StatusCode)
 	}
-	session := resp.Header.Get("Mcp-Session-Id")
-	if session == "" {
-		t.Fatal("initialize response has no Mcp-Session-Id")
-	}
-	return session
+	return resp.Header.Get("Mcp-Session-Id")
 }
 
 func TestSessionIsBoundToGrant(t *testing.T) {
@@ -170,7 +166,9 @@ func TestSessionIsBoundToGrant(t *testing.T) {
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
-		req.Header.Set("Mcp-Session-Id", session)
+		if session != "" {
+			req.Header.Set("Mcp-Session-Id", session)
+		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := client.Do(req)
 		if err != nil {
@@ -183,8 +181,88 @@ func TestSessionIsBoundToGrant(t *testing.T) {
 	if resp := call("alpha"); resp.StatusCode >= 400 {
 		t.Fatalf("same-grant notification status = %d", resp.StatusCode)
 	}
-	if resp := call("beta"); resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("cross-grant session status = %d, want 403", resp.StatusCode)
+	if session != "" {
+		if resp := call("beta"); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("cross-grant session status = %d, want 403", resp.StatusCode)
+		}
+	}
+}
+
+func TestStatelessGrantIsolation(t *testing.T) {
+	appDir := t.TempDir()
+	docsDir := t.TempDir()
+	mgr, err := ws.NewManager([]ws.WorkspaceConfig{
+		{Name: "app", Path: appDir, MaxPerm: ws.PermRead},
+		{Name: "docs", Path: docsDir, MaxPerm: ws.PermRead},
+	}, ws.ManagerOptions{DataDir: t.TempDir(), RipgrepPath: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	principals := map[string]*oauth.GrantPrincipal{
+		"alpha": {
+			GrantID:    "wsb_grt_alpha",
+			ClientID:   "wsb_cli_test",
+			Scopes:     []string{"mcp:tools"},
+			Workspaces: map[string]ws.Permission{"app": ws.PermRead},
+			ExpiresAt:  time.Now().Add(time.Hour),
+		},
+		"beta": {
+			GrantID:    "wsb_grt_beta",
+			ClientID:   "wsb_cli_test",
+			Scopes:     []string{"mcp:tools"},
+			Workspaces: map[string]ws.Permission{"docs": ws.PermRead},
+			ExpiresAt:  time.Now().Add(time.Hour),
+		},
+	}
+	srv, err := mcpsrv.New(mcpsrv.Options{
+		Manager: mgr,
+		Version: "test",
+		Scope:   mcpsrv.GrantScope(mgr),
+		Auth: &mcpsrv.AuthConfig{
+			Verifier:            fakeVerifier{principals: principals},
+			ResourceURL:         testResource,
+			ResourceMetadataURL: "https://bridge.example.com/.well-known/oauth-protected-resource/mcp",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	client := server.Client()
+
+	listFor := func(token string) string {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp",
+			bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Mcp-Session-Id", "forged-session-id")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("tools/call status = %d: %s", resp.StatusCode, raw)
+		}
+		return string(raw)
+	}
+
+	alphaBody := listFor("alpha")
+	if !strings.Contains(alphaBody, "app") || strings.Contains(alphaBody, "docs") {
+		t.Fatalf("alpha saw wrong workspaces: %s", alphaBody)
+	}
+	betaBody := listFor("beta")
+	if !strings.Contains(betaBody, "docs") || strings.Contains(betaBody, "app") {
+		t.Fatalf("beta saw wrong workspaces: %s", betaBody)
 	}
 }
 

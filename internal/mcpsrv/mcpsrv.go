@@ -94,6 +94,7 @@ func New(opts Options) (*Server, error) {
 			// SDK's Host-header check would also reject legitimate reverse
 			// proxy hostnames.
 			DisableLocalhostProtection: true,
+			Stateless:                  true,
 		})
 	if opts.Auth != nil {
 		authCfg := *opts.Auth

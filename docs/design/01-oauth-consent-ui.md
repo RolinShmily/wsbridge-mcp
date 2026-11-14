@@ -14,7 +14,7 @@ Pragma: no-cache
 X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
-Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'
 ```
 
 - **禁止任何外链**：不加载 Google Fonts、不加载外部 CSS/JS CDN、不加载外部图片（图标统一使用内联 SVG）。
