@@ -356,16 +356,44 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var tunnelDone chan error
+	if cfg.Tunnel.Provider == "cloudflared" {
+		runner := tunnel.NewCloudflaredRunner(tunnel.CloudflaredOptions{
+			Binary:    cfg.Tunnel.Binary,
+			TokenFile: cfg.Tunnel.TokenFile,
+			TokenEnv:  cfg.Tunnel.TokenEnv,
+			Listen:    listen,
+			Logger:    logger,
+		})
+		tunnelDone = make(chan error, 1)
+		go func() {
+			err := runner.Run(ctx)
+			if err != nil {
+				logger.Error("managed tunnel failed", "error", err)
+				stop()
+			}
+			tunnelDone <- err
+		}()
+	}
+
 	logger.Info("wsbridge starting", "listen", listen, "public_url", cfg.PublicURL)
+	var exitCode int
 	if service.Hosted() {
-		return runHostedServe(ctx, stop, srv, logger)
-	}
-	if err := srv.Start(ctx); err != nil {
+		exitCode = runHostedServe(ctx, stop, srv, logger)
+	} else if err := srv.Start(ctx); err != nil {
 		logger.Error("wsbridge stopped", "error", err)
-		return exitError
+		exitCode = exitError
+	} else {
+		logger.Info("wsbridge stopped")
+		exitCode = exitOK
 	}
-	logger.Info("wsbridge stopped")
-	return exitOK
+	stop()
+	if tunnelDone != nil {
+		if err := <-tunnelDone; err != nil && exitCode == exitOK {
+			exitCode = exitError
+		}
+	}
+	return exitCode
 }
 
 // runHostedServe hands the process lifetime to the Windows service control

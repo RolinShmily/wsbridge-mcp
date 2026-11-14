@@ -90,6 +90,14 @@ checks = ["git_status", "git_diff"]      # run_check 白名单
 | Cloudflare Named Tunnel | `cloudflared tunnel run`（指向 `http://127.0.0.1:8787`） |
 | ngrok 静态域名 | `ngrok http --domain=<static-domain> 8787` |
 
+若使用 Cloudflare Named Tunnel 且不希望单独维护系统服务，可在 `config.toml` 中启用托管模式，由 `wsbridge serve` 自动拉起、监控并在退出时一并关闭 `cloudflared`：
+
+```toml
+[tunnel]
+provider = "cloudflared"
+token_file = "/path/to/cloudflared-token" # 权限建议 0600，或改用 token_env = "CLOUDFLARE_TUNNEL_TOKEN"
+```
+
 > **不要使用随机临时域名**（如 `*.trycloudflare.com`）。`issuer`、`client_id`、Grant 与令牌均与 `public_url` 强绑定，域名变化会使所有已连接的 AI 平台连接器失效。
 >
 > 隧道层**不得**对 `/.well-known/*` 或 `/mcp` 返回 301/302（例如强制 HTTP→HTTPS 跳转或补全尾部斜杠），否则 Claude 云端运行时会丢弃 `Authorization` 头。
