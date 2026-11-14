@@ -112,6 +112,7 @@ func localChecks(opts Options) []Check {
 		for _, ws := range opts.Config.Workspaces {
 			checks = append(checks, workspaceCheck(ws))
 		}
+		checks = append(checks, checkManagedTunnelWith(opts.Config, opts.LookPath)...)
 	}
 	if _, err := opts.LookPath("rg"); err == nil {
 		checks = append(checks, Check{Name: "ripgrep", Level: Pass, Detail: "rg found; searches use ripgrep"})
