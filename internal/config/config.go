@@ -59,10 +59,19 @@ type Config struct {
 	AllowRedirectHosts   []string    `toml:"allow_redirect_hosts"`
 	DenyPatterns         []string    `toml:"deny_patterns"`
 	MaxSnapshotsPerGrant int         `toml:"max_snapshots_per_grant"`
+	Tunnel               Tunnel      `toml:"tunnel"`
 	Workspaces           []Workspace `toml:"workspace"`
 
 	// path is the absolute path this configuration was loaded from or saved to.
 	path string
+}
+
+// Tunnel configures an optional managed tunnel subprocess (for example cloudflared).
+type Tunnel struct {
+	Provider  string `toml:"provider"`
+	Binary    string `toml:"binary"`
+	TokenFile string `toml:"token_file"`
+	TokenEnv  string `toml:"token_env"`
 }
 
 // LoadOptions controls validation that is intentionally relaxed for local tests.
@@ -170,6 +179,9 @@ func (c *Config) ValidateWith(opts LoadOptions) error {
 	if err := validateDenyPatterns(c.DenyPatterns); err != nil {
 		return err
 	}
+	if err := c.validateTunnel(); err != nil {
+		return err
+	}
 	return validateWorkspaces(c.Workspaces)
 }
 
@@ -177,6 +189,21 @@ func (c *Config) normalize() {
 	c.PublicURL = strings.TrimSpace(c.PublicURL)
 	c.Listen = strings.TrimSpace(c.Listen)
 	c.DataDir = strings.TrimSpace(c.DataDir)
+	c.Tunnel.Provider = strings.ToLower(strings.TrimSpace(c.Tunnel.Provider))
+	c.Tunnel.Binary = strings.TrimSpace(c.Tunnel.Binary)
+	c.Tunnel.TokenFile = strings.TrimSpace(c.Tunnel.TokenFile)
+	c.Tunnel.TokenEnv = strings.TrimSpace(c.Tunnel.TokenEnv)
+	if c.Tunnel.Provider == "cloudflared" && c.Tunnel.Binary == "" {
+		c.Tunnel.Binary = "cloudflared"
+	}
+	if strings.HasPrefix(c.Tunnel.TokenFile, "~/") || strings.HasPrefix(c.Tunnel.TokenFile, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			c.Tunnel.TokenFile = filepath.Join(home, c.Tunnel.TokenFile[2:])
+		}
+	}
+	if c.Tunnel.TokenFile != "" && !filepath.IsAbs(c.Tunnel.TokenFile) && c.path != "" {
+		c.Tunnel.TokenFile = filepath.Join(filepath.Dir(c.path), c.Tunnel.TokenFile)
+	}
 	if c.Listen == "" {
 		c.Listen = DefaultListen
 	}
@@ -282,6 +309,26 @@ func validateDenyPatterns(patterns []string) error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) validateTunnel() error {
+	switch c.Tunnel.Provider {
+	case "", "none":
+		return nil
+	case "cloudflared":
+		if c.Tunnel.TokenFile == "" && c.Tunnel.TokenEnv == "" {
+			return fmt.Errorf("config: [tunnel] provider \"cloudflared\" requires token_file or token_env")
+		}
+		if c.Tunnel.TokenFile != "" && c.Tunnel.TokenEnv != "" {
+			return fmt.Errorf("config: [tunnel] token_file and token_env are mutually exclusive")
+		}
+		if c.Tunnel.TokenEnv != "" && strings.ContainsAny(c.Tunnel.TokenEnv, "= \t\r\n") {
+			return fmt.Errorf("config: [tunnel] token_env %q is not a valid environment variable name", c.Tunnel.TokenEnv)
+		}
+		return nil
+	default:
+		return fmt.Errorf("config: unsupported [tunnel] provider %q (want \"\", \"none\", or \"cloudflared\")", c.Tunnel.Provider)
+	}
 }
 
 func validateWorkspaces(workspaces []Workspace) error {
@@ -408,6 +455,13 @@ deny_patterns = []
 
 # Maximum number of pre-write snapshots kept per Grant.
 max_snapshots_per_grant = 20
+
+# Optional managed tunnel subprocess. Leave disabled if you run cloudflared
+# or another reverse proxy separately.
+# [tunnel]
+# provider = "cloudflared"
+# token_file = "/path/to/cloudflared-token"
+# # or: token_env = "CLOUDFLARE_TUNNEL_TOKEN"
 
 # Add one [[workspace]] block per local directory you want to expose.
 # name must be unique and match [a-zA-Z0-9._-]+; path must be an absolute

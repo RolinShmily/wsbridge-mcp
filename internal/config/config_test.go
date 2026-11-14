@@ -445,3 +445,76 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestTunnelConfigValidation(t *testing.T) {
+	dir := t.TempDir()
+	ws := "\n[[workspace]]\nname = \"app\"\npath = \"" + escapeTOML(dir) + "\"\nmax_perm = \"read\"\n"
+	cases := []struct {
+		name    string
+		toml    string
+		wantErr bool
+	}{
+		{
+			name: "default empty provider",
+			toml: "public_url = \"https://bridge.example.com\"" + ws,
+		},
+		{
+			name: "none provider",
+			toml: "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"none\"\n" + ws,
+		},
+		{
+			name: "cloudflared with token_file",
+			toml: "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\ntoken_file = \"/etc/cloudflared/token\"\n" + ws,
+		},
+		{
+			name: "cloudflared with tilde token_file",
+			toml: "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\ntoken_file = \"~/cf-token\"\n" + ws,
+		},
+		{
+			name: "cloudflared with token_env",
+			toml: "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\ntoken_env = \"CLOUDFLARE_TUNNEL_TOKEN\"\n" + ws,
+		},
+		{
+			name:    "cloudflared missing token source",
+			toml:    "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\n" + ws,
+			wantErr: true,
+		},
+		{
+			name:    "cloudflared both token_file and token_env",
+			toml:    "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\ntoken_file = \"/etc/cloudflared/token\"\ntoken_env = \"CLOUDFLARE_TUNNEL_TOKEN\"\n" + ws,
+			wantErr: true,
+		},
+		{
+			name:    "cloudflared invalid token_env",
+			toml:    "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"cloudflared\"\ntoken_env = \"BAD=NAME\"\n" + ws,
+			wantErr: true,
+		},
+		{
+			name:    "unknown provider",
+			toml:    "public_url = \"https://bridge.example.com\"\n[tunnel]\nprovider = \"ngrok\"\n" + ws,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(tc.toml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.Load(path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got cfg=%+v", cfg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Tunnel.Provider == "cloudflared" && cfg.Tunnel.Binary != "cloudflared" {
+				t.Fatalf("default Tunnel.Binary = %q, want %q", cfg.Tunnel.Binary, "cloudflared")
+			}
+		})
+	}
+}
