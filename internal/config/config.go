@@ -55,11 +55,11 @@ type Workspace struct {
 type Config struct {
 	PublicURL            string      `toml:"public_url"`
 	Listen               string      `toml:"listen"`
-	DataDir              string      `toml:"data_dir"`
-	AllowRedirectHosts   []string    `toml:"allow_redirect_hosts"`
-	DenyPatterns         []string    `toml:"deny_patterns"`
+	DataDir              string      `toml:"data_dir,omitempty"`
+	AllowRedirectHosts   []string    `toml:"allow_redirect_hosts,omitempty"`
+	DenyPatterns         []string    `toml:"deny_patterns,omitempty"`
 	MaxSnapshotsPerGrant int         `toml:"max_snapshots_per_grant"`
-	Tunnel               Tunnel      `toml:"tunnel"`
+	Tunnel               Tunnel      `toml:"tunnel,omitempty"`
 	Workspaces           []Workspace `toml:"workspace"`
 
 	// path is the absolute path this configuration was loaded from or saved to.
@@ -68,10 +68,10 @@ type Config struct {
 
 // Tunnel configures an optional managed tunnel subprocess (for example cloudflared).
 type Tunnel struct {
-	Provider  string `toml:"provider"`
-	Binary    string `toml:"binary"`
-	TokenFile string `toml:"token_file"`
-	TokenEnv  string `toml:"token_env"`
+	Provider  string `toml:"provider,omitempty"`
+	Binary    string `toml:"binary,omitempty"`
+	TokenFile string `toml:"token_file,omitempty"`
+	TokenEnv  string `toml:"token_env,omitempty"`
 }
 
 // LoadOptions controls validation that is intentionally relaxed for local tests.

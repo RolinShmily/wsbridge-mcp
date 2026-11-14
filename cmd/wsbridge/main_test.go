@@ -889,7 +889,6 @@ func TestRunInitInteractive(t *testing.T) {
 		"git_status,git_diff",     // checks
 		"n",                       // add another workspace?
 		"1",                       // tunnel: 1 = cloudflared
-		"cf-token",                // token_file
 		"https://mcp.example.com", // public_url
 		"127.0.0.1:8787",          // listen
 		"y",                       // set passphrase now?
@@ -899,13 +898,16 @@ func TestRunInitInteractive(t *testing.T) {
 	passCalls := 0
 	code := runInitInteractive(cfgPath, strings.NewReader(input), &stdout, &stderr, func() (string, error) {
 		passCalls++
+		if passCalls == 1 {
+			return "cf-token-secret", nil
+		}
 		return "correct horse battery staple", nil
 	})
 	if code != 0 {
 		t.Fatalf("runInitInteractive exit = %d, stderr = %s\nstdout = %s", code, stderr.String(), stdout.String())
 	}
-	if passCalls != 2 {
-		t.Fatalf("passphrase read calls = %d, want 2 (enter + confirm)", passCalls)
+	if passCalls != 3 {
+		t.Fatalf("secret read calls = %d, want 3 (tunnel token + passphrase + confirm)", passCalls)
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -915,7 +917,7 @@ func TestRunInitInteractive(t *testing.T) {
 	if cfg.PublicURL != "https://mcp.example.com" {
 		t.Errorf("PublicURL = %q", cfg.PublicURL)
 	}
-	if cfg.Tunnel.Provider != "cloudflared" || cfg.Tunnel.TokenFile != filepath.Join(filepath.Dir(cfgPath), "cf-token") {
+	if cfg.Tunnel.Provider != "cloudflared" || cfg.Tunnel.TokenFile != filepath.Join(filepath.Dir(cfgPath), "cloudflared-token") {
 		t.Errorf("Tunnel = %+v", cfg.Tunnel)
 	}
 	if len(cfg.Workspaces) != 1 || cfg.Workspaces[0].Name != "proj" || cfg.Workspaces[0].MaxPerm != config.PermWrite {
@@ -937,5 +939,44 @@ func TestRunInitInteractive(t *testing.T) {
 	hash, err := store.AdminHash()
 	if err != nil || hash == "" {
 		t.Fatalf("expected admin hash to be saved, got hash=%q err=%v", hash, err)
+	}
+}
+
+func TestRunInitInteractiveSavesPastedTunnelToken(t *testing.T) {
+	tmp := t.TempDir()
+	wsDir := filepath.Join(tmp, "proj")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(tmp, "cfg", "config.toml")
+
+	input := strings.Join([]string{
+		"proj",
+		wsDir,
+		"read",
+		"",
+		"n",
+		"1",
+		"https://mcp.example.com",
+		"127.0.0.1:8787",
+		"n",
+	}, "\n") + "\n"
+
+	var stdout, stderr bytes.Buffer
+	code := runInitInteractive(cfgPath, strings.NewReader(input), &stdout, &stderr, func() (string, error) {
+		return "cloudflared.exe service install pasted-cf-token-123", nil
+	})
+	if code != 0 {
+		t.Fatalf("runInitInteractive exit = %d, stderr = %s", code, stderr.String())
+	}
+	gotToken, err := os.ReadFile(filepath.Join(filepath.Dir(cfgPath), "cloudflared-token"))
+	if err != nil {
+		t.Fatalf("read saved token: %v", err)
+	}
+	if string(gotToken) != "pasted-cf-token-123" {
+		t.Fatalf("saved token = %q, want %q", string(gotToken), "pasted-cf-token-123")
+	}
+	if strings.Contains(stdout.String(), "pasted-cf-token-123") {
+		t.Fatal("tunnel token leaked to stdout")
 	}
 }

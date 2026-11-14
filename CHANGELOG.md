@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.1] - 2026-11-14
+
+### Changed
+- Streamlined interactive `wsbridge init` for managed `cloudflared` tunnels: prints the target `config.toml` path upfront and prompts once to paste the tunnel token directly (also extracts the token if pasting `cloudflared service install <token>`), saving it atomically to `cloudflared-token` with `0600` permissions.
+- Added `omitempty` TOML tags to optional `Config` and `Tunnel` fields so generated `config.toml` files stay minimal and clean.
+
 ## [v0.1.0] - 2026-11-14
 
 ### Added

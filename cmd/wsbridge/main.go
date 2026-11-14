@@ -243,6 +243,7 @@ func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, 
 	}
 
 	fmt.Fprintln(stdout, "wsbridge interactive setup")
+	fmt.Fprintf(stdout, "Config file: %s\n", cfgPath)
 	fmt.Fprintln(stdout, "--------------------------")
 
 	var workspaces []config.Workspace
@@ -314,15 +315,31 @@ func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, 
 	switch choice {
 	case "1", "cloudflared":
 		tun.Provider = "cloudflared"
-		src, err := prompt("Cloudflare tunnel token_file (or env:VAR_NAME)", "cloudflared-token")
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		if strings.HasPrefix(src, "env:") {
-			tun.TokenEnv = strings.TrimSpace(strings.TrimPrefix(src, "env:"))
-		} else {
-			tun.TokenFile = src
+		for {
+			fmt.Fprint(stdout, "Paste Cloudflare tunnel token: ")
+			rawTok, err := readSecret()
+			fmt.Fprintln(stdout)
+			if err != nil {
+				fmt.Fprintf(stderr, "wsbridge init: read tunnel token: %v\n", err)
+				return exitError
+			}
+			tok := extractCloudflaredToken(rawTok)
+			if tok == "" {
+				fmt.Fprintln(stderr, "wsbridge init: tunnel token cannot be empty")
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+				fmt.Fprintf(stderr, "wsbridge init: create config directory: %v\n", err)
+				return exitError
+			}
+			tokenPath := filepath.Join(filepath.Dir(cfgPath), "cloudflared-token")
+			if err := os.WriteFile(tokenPath, []byte(tok), 0o600); err != nil {
+				fmt.Fprintf(stderr, "wsbridge init: write tunnel token: %v\n", err)
+				return exitError
+			}
+			tun.TokenFile = "cloudflared-token"
+			fmt.Fprintf(stdout, "Saved tunnel token to %s (0600)\n", tokenPath)
+			break
 		}
 	case "2", "tailscale":
 		tun.Provider = "none"
@@ -441,6 +458,18 @@ func portFromListen(listen string) string {
 		return "8787"
 	}
 	return port
+}
+
+func extractCloudflaredToken(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) >= 2 && strings.Contains(strings.ToLower(fields[0]), "cloudflared") {
+		return fields[len(fields)-1]
+	}
+	return trimmed
 }
 
 func runServe(configFlag string, args []string, stdout, stderr io.Writer) int {
