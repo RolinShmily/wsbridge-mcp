@@ -873,3 +873,69 @@ checks = ["git_status"]
 		}
 	}
 }
+
+func TestRunInitInteractive(t *testing.T) {
+	tmp := t.TempDir()
+	wsDir := filepath.Join(tmp, "proj")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(tmp, "cfg", "config.toml")
+
+	input := strings.Join([]string{
+		"proj",                    // workspace name
+		wsDir,                     // workspace path
+		"write",                   // max_perm
+		"git_status,git_diff",     // checks
+		"n",                       // add another workspace?
+		"1",                       // tunnel: 1 = cloudflared
+		"cf-token",                // token_file
+		"https://mcp.example.com", // public_url
+		"127.0.0.1:8787",          // listen
+		"y",                       // set passphrase now?
+	}, "\n") + "\n"
+
+	var stdout, stderr bytes.Buffer
+	passCalls := 0
+	code := runInitInteractive(cfgPath, strings.NewReader(input), &stdout, &stderr, func() (string, error) {
+		passCalls++
+		return "correct horse battery staple", nil
+	})
+	if code != 0 {
+		t.Fatalf("runInitInteractive exit = %d, stderr = %s\nstdout = %s", code, stderr.String(), stdout.String())
+	}
+	if passCalls != 2 {
+		t.Fatalf("passphrase read calls = %d, want 2 (enter + confirm)", passCalls)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if cfg.PublicURL != "https://mcp.example.com" {
+		t.Errorf("PublicURL = %q", cfg.PublicURL)
+	}
+	if cfg.Tunnel.Provider != "cloudflared" || cfg.Tunnel.TokenFile != filepath.Join(filepath.Dir(cfgPath), "cf-token") {
+		t.Errorf("Tunnel = %+v", cfg.Tunnel)
+	}
+	if len(cfg.Workspaces) != 1 || cfg.Workspaces[0].Name != "proj" || cfg.Workspaces[0].MaxPerm != config.PermWrite {
+		t.Errorf("Workspaces = %+v", cfg.Workspaces)
+	}
+	if !strings.Contains(stdout.String(), "https://mcp.example.com/mcp") {
+		t.Errorf("stdout missing MCP endpoint URL:\n%s", stdout.String())
+	}
+
+	dataDir, err := cfg.ResolvedDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := oauth.OpenStore(filepath.Join(dataDir, "wsbridge.db"), oauth.StoreOptions{Issuer: cfg.PublicURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	hash, err := store.AdminHash()
+	if err != nil || hash == "" {
+		t.Fatalf("expected admin hash to be saved, got hash=%q err=%v", hash, err)
+	}
+}

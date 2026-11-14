@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -152,6 +153,7 @@ func runInit(configFlag string, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	force := fs.Bool("force", false, "overwrite an existing configuration file")
+	nonInteractive := fs.Bool("non-interactive", false, "write the example config without prompting")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
@@ -174,6 +176,12 @@ func runInit(configFlag string, args []string, stdout, stderr io.Writer) int {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(stderr, "wsbridge init: inspect %s: %v\n", cfgPath, err)
 		return exitError
+	}
+
+	if !*nonInteractive && term.IsTerminal(os.Stdin) {
+		return runInitInteractive(cfgPath, os.Stdin, stdout, stderr, func() (string, error) {
+			return term.ReadPassword(os.Stdin)
+		})
 	}
 
 	if err := config.WriteExample(cfgPath); err != nil {
@@ -207,6 +215,232 @@ func runInit(configFlag string, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  2. Run: wsbridge passwd   (set the administrator password)\n")
 	fmt.Fprintf(stdout, "  3. Run: wsbridge serve    (start the bridge behind your HTTPS tunnel)\n")
 	return exitOK
+}
+
+func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, readSecret func() (string, error)) int {
+	reader := bufio.NewReader(in)
+	prompt := func(label, def string) (string, error) {
+		if def != "" {
+			fmt.Fprintf(stdout, "%s [%s]: ", label, def)
+		} else {
+			fmt.Fprintf(stdout, "%s: ", label)
+		}
+		line, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", err
+		}
+		val := strings.TrimSpace(line)
+		if val == "" {
+			return def, nil
+		}
+		return val, nil
+	}
+
+	cwd, _ := os.Getwd()
+	defaultName := filepath.Base(cwd)
+	if defaultName == "" || defaultName == "." || defaultName == string(filepath.Separator) {
+		defaultName = "workspace"
+	}
+
+	fmt.Fprintln(stdout, "wsbridge interactive setup")
+	fmt.Fprintln(stdout, "--------------------------")
+
+	var workspaces []config.Workspace
+	for {
+		nameDef := defaultName
+		if len(workspaces) > 0 {
+			nameDef = ""
+		}
+		name, err := prompt("Workspace name", nameDef)
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		pathDef := cwd
+		if len(workspaces) > 0 {
+			pathDef = ""
+		}
+		wsPath, err := prompt("Workspace directory", pathDef)
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		permStr, err := prompt("Max permission (read/write/check)", "write")
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		defaultChecks := ""
+		if _, err := os.Stat(filepath.Join(wsPath, ".git")); err == nil {
+			defaultChecks = "git_status,git_diff"
+		}
+		checksRaw, err := prompt("Allowed checks (comma-separated, or empty)", defaultChecks)
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		var checks []string
+		for _, item := range strings.Split(checksRaw, ",") {
+			if c := strings.TrimSpace(item); c != "" {
+				checks = append(checks, c)
+			}
+		}
+		workspaces = append(workspaces, config.Workspace{
+			Name:    name,
+			Path:    wsPath,
+			MaxPerm: config.Permission(permStr),
+			Checks:  checks,
+		})
+		more, err := prompt("Add another workspace? (y/N)", "n")
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		if !strings.EqualFold(more, "y") && !strings.EqualFold(more, "yes") {
+			break
+		}
+	}
+
+	fmt.Fprintln(stdout, "\nTunnel setup:")
+	fmt.Fprintln(stdout, "  1) cloudflared (managed by wsbridge, recommended)")
+	fmt.Fprintln(stdout, "  2) tailscale funnel (external: tailscale funnel --bg 8787)")
+	fmt.Fprintln(stdout, "  3) none / custom reverse proxy")
+	choice, err := prompt("Select tunnel option (1/2/3)", "1")
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+		return exitError
+	}
+	var tun config.Tunnel
+	switch choice {
+	case "1", "cloudflared":
+		tun.Provider = "cloudflared"
+		src, err := prompt("Cloudflare tunnel token_file (or env:VAR_NAME)", "cloudflared-token")
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+			return exitError
+		}
+		if strings.HasPrefix(src, "env:") {
+			tun.TokenEnv = strings.TrimSpace(strings.TrimPrefix(src, "env:"))
+		} else {
+			tun.TokenFile = src
+		}
+	case "2", "tailscale":
+		tun.Provider = "none"
+	default:
+		tun.Provider = "none"
+	}
+
+	publicURL, err := prompt("\nPublic HTTPS URL (e.g. https://bridge.example.com)", "")
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+		return exitError
+	}
+	listen, err := prompt("Local listen address", config.DefaultListen)
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+		return exitError
+	}
+
+	cfg := &config.Config{
+		PublicURL:            publicURL,
+		Listen:               listen,
+		MaxSnapshotsPerGrant: config.DefaultMaxSnapshotsPerGrant,
+		Tunnel:               tun,
+		Workspaces:           workspaces,
+	}
+	if err := cfg.Save(cfgPath); err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+		return exitError
+	}
+	cfg, err = config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: invalid configuration: %v\n", err)
+		return exitError
+	}
+	dataDir, err := cfg.ResolvedDataDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
+		return exitError
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: create data directory %s: %v\n", dataDir, err)
+		return exitError
+	}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(dataDir, 0o700)
+	}
+
+	store, err := oauth.OpenStore(filepath.Join(dataDir, "wsbridge.db"), oauth.StoreOptions{Issuer: cfg.PublicURL})
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge init: open database: %v\n", err)
+		return exitError
+	}
+	existingHash, err := store.AdminHash()
+	if err == nil && strings.TrimSpace(existingHash) == "" {
+		setPass, err := prompt("\nSet administrator passphrase now? (Y/n)", "y")
+		if err == nil && (strings.EqualFold(setPass, "y") || strings.EqualFold(setPass, "yes")) {
+			for {
+				fmt.Fprint(stdout, "New administrator passphrase (min 10 chars): ")
+				first, err := readSecret()
+				fmt.Fprintln(stdout)
+				if err != nil {
+					_ = store.Close()
+					fmt.Fprintf(stderr, "wsbridge init: read passphrase: %v\n", err)
+					return exitError
+				}
+				if utf8.RuneCountInString(first) < 10 {
+					fmt.Fprintln(stderr, "wsbridge init: passphrase must be at least 10 characters")
+					continue
+				}
+				fmt.Fprint(stdout, "Confirm passphrase: ")
+				second, err := readSecret()
+				fmt.Fprintln(stdout)
+				if err != nil {
+					_ = store.Close()
+					fmt.Fprintf(stderr, "wsbridge init: read passphrase: %v\n", err)
+					return exitError
+				}
+				if first != second {
+					fmt.Fprintln(stderr, "wsbridge init: passphrases do not match")
+					continue
+				}
+				hash, err := oauth.HashAdminPassphrase(first, oauth.DefaultArgon2Params)
+				if err != nil {
+					_ = store.Close()
+					fmt.Fprintf(stderr, "wsbridge init: hash passphrase: %v\n", err)
+					return exitError
+				}
+				if err := store.SetAdminHash(hash); err != nil {
+					_ = store.Close()
+					fmt.Fprintf(stderr, "wsbridge init: save passphrase: %v\n", err)
+					return exitError
+				}
+				break
+			}
+		}
+	}
+	_ = store.Close()
+
+	fmt.Fprintf(stdout, "\nSaved configuration: %s\n", cfgPath)
+	fmt.Fprintf(stdout, "MCP Endpoint URL:    %s/mcp\n\n", strings.TrimRight(cfg.PublicURL, "/"))
+	fmt.Fprintln(stdout, "Next steps:")
+	if choice == "2" || choice == "tailscale" {
+		fmt.Fprintf(stdout, "  1. Start Tailscale Funnel: tailscale funnel --bg %s\n", portFromListen(cfg.Listen))
+		fmt.Fprintln(stdout, "  2. Run: wsbridge serve")
+		fmt.Fprintln(stdout, "  3. Run: wsbridge doctor --timeout 10s")
+	} else {
+		fmt.Fprintln(stdout, "  1. Run: wsbridge serve")
+		fmt.Fprintln(stdout, "  2. Run: wsbridge doctor --timeout 10s")
+	}
+	return exitOK
+}
+
+func portFromListen(listen string) string {
+	_, port, err := net.SplitHostPort(listen)
+	if err != nil || port == "" {
+		return "8787"
+	}
+	return port
 }
 
 func runServe(configFlag string, args []string, stdout, stderr io.Writer) int {
