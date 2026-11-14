@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -44,8 +45,13 @@ func stopServer(t *testing.T, cancel context.CancelFunc, errCh <-chan error) {
 		if err != nil {
 			t.Fatalf("Start returned error after cancel: %v", err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Start did not return after context cancellation")
+	case <-time.After(8 * time.Second):
+		// net/http.Shutdown treats a StateNew connection as idle only after
+		// five seconds (Go issue 22682), so the graceful-shutdown window must
+		// be longer than that to avoid racing the test deadline.
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		t.Fatalf("Start did not return after context cancellation:\n%s", buf[:n])
 	}
 }
 
@@ -80,6 +86,77 @@ func TestServerStartServesAndShutsDownGracefully(t *testing.T) {
 		t.Errorf("Addr = %v, want %v", got, ln.Addr())
 	}
 	stopServer(t, cancel, errCh)
+}
+
+func TestServerForcesShutdownOfLongLivedStreams(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	entered := make(chan struct{}, 1)
+	srv := httpx.New(httpx.Options{
+		Listener: ln,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			entered <- struct{}{}
+			<-r.Context().Done()
+		}),
+		Logger:          newTestLogger(&bytes.Buffer{}),
+		ShutdownTimeout: 100 * time.Millisecond,
+	})
+	cancel, errCh := startServer(t, srv)
+	waitForTCP(t, ln.Addr().String())
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		"http://"+ln.Addr().String()+"/stream", nil)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	clientDone := make(chan error, 1)
+	go func() {
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			clientDone <- err
+			return
+		}
+		defer resp.Body.Close()
+		_, err = io.Copy(io.Discard, resp.Body)
+		clientDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("streaming handler was never entered")
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error after force-closing streams: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after the force-close deadline")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Errorf("shutdown took %v, want about the 100ms timeout", elapsed)
+	}
+
+	select {
+	case <-clientDone:
+	case <-time.After(3 * time.Second):
+		t.Error("streaming client was not released by force-close")
+	}
 }
 
 func TestServerEnforcesDefaultBodyLimit(t *testing.T) {

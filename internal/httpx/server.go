@@ -152,12 +152,23 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		serveErr := <-errCh
 		switch {
-		case shutdownErr != nil:
-			return fmt.Errorf("httpx: graceful shutdown: %w", shutdownErr)
-		case serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed):
-			return fmt.Errorf("httpx: serve: %w", serveErr)
-		default:
+		case shutdownErr == nil:
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				return fmt.Errorf("httpx: serve: %w", serveErr)
+			}
 			return nil
+		case errors.Is(shutdownErr, context.DeadlineExceeded):
+			// Long-lived MCP Streamable HTTP responses (standalone SSE GETs)
+			// do not finish on their own. After the graceful window, Closing
+			// them is an intentional, successful shutdown rather than an error.
+			s.logger.Warn("shutdown timed out; closed remaining connections",
+				"timeout", s.opts.ShutdownTimeout)
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				return fmt.Errorf("httpx: serve: %w", serveErr)
+			}
+			return nil
+		default:
+			return fmt.Errorf("httpx: graceful shutdown: %w", shutdownErr)
 		}
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
