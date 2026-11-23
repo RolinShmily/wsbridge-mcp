@@ -19,7 +19,7 @@
 | `read_file` | `read` | `true` | `false` | `true` | `false` |
 | `edit_file` | `write` | `false` | `true` | `false` | `false` |
 | `write_file` | `write` | `false` | `true` | `false` | `false` |
-| `run_check` | `check` | `false` | `false` | `true` | `false` |
+| `run_check` | `check` | `false` | `true` | `false` | `false` |
 
 > **安全边界**：所有工具的 `openWorldHint` 必须显式设为 `false`，向宿主平台声明本工具集仅作用于受控本地工作区，不访问开放互联网。
 
@@ -157,24 +157,23 @@ eq 1$ 报错并列出匹配行号；成功写入后返回统一 Diff 片段及**
   - 成功后返回字节数与**最新 `SHA256`**。
 
 ### 3.7 `run_check`
-- **描述**：执行当前工作区配置白名单中允许的只读/测试检查命令。
+- **描述**：执行工作区内建的项目检查/测试命令（默认全部开放；如配置了工作区 `checks` 子集则按子集限制）。
 - **输入 Schema**：
   ```json
   {
     "type": "object",
     "properties": {
       "workspace": { "type": "string" },
-      "name": { "type": "string", "minLength": 1, "description": "Check identifier configured on the server (e.g., git_status, git_diff, go_vet)." }
+      "name": { "type": "string", "minLength": 1, "description": "Built-in check identifier (e.g., git_status, git_diff, go_test, npm_test, pytest, uv_pytest, uv_ruff, uv_pip_list, pip_list, cargo_test). Call list_workspaces for the full list." }
     },
     "required": ["name"],
     "additionalProperties": false
   }
   ```
-- **内置命令映射表**（绝不读取工作区内 `Makefile`/`package.json` 动态拼接命令）：
-  - `git_status` → `git status --short --branch`（默认可启用）
-  - `git_diff` → `git diff`（默认可启用）
-  - `go_vet` → `go vet ./...`（默认可启用）
-  - `go_test` → `go test ./...`（**默认禁用**，需在工作区 `checks` 显式配置）
-  - `npm_lint` → `npm run lint`（**默认禁用**，需显式配置）
-  - `npm_test` → `npm test`（**默认禁用**，需显式配置）
-- **环境隔离**：子进程仅继承白名单环境变量（`PATH`、`HOME`/`USERPROFILE`、`TMPDIR`/`TEMP`、`GOPATH`、`GOROOT`、`GOMODCACHE`、`APPDATA`、`LOCALAPPDATA`），剥离所有其他宿主环境变量；执行超时 `60s`；输出上限 `64KB`。
+- **内置命令映射表**（默认全部开放，绝不读取工作区内 `Makefile`/`package.json` 动态拼接 shell 命令）：
+  - **Git**：`git_status`（`git status --short --branch`）、`git_diff`（`git diff`）、`git_log`（`git log -n 20 --oneline`）
+  - **Go**：`go_vet`（`go vet ./...`）、`go_test`（`go test ./...`）、`go_build`（`go build ./...`）
+  - **Node**：`npm_lint`（`npm run lint`）、`npm_test`（`npm test`）、`npm_build`（`npm run build`）
+  - **Python**：`pytest`（`pytest`）、`ruff_check`（`ruff check .`）、`mypy`（`mypy .`）、`uv_pytest`（`uv run pytest`）、`uv_ruff`（`uv run ruff check .`）、`uv_mypy`（`uv run mypy .`）、`uv_lock_check`（`uv lock --check`）、`uv_pip_list`（`uv pip list`）、`uv_pip_check`（`uv pip check`）、`pip_list`（`pip list`）、`pip_check`（`pip check`）
+  - **Rust**：`cargo_check`（`cargo check`）、`cargo_test`（`cargo test`）
+- **环境隔离**：子进程仅继承非敏感白名单环境变量（`PATH`、`HOME`/`USERPROFILE`、`TMPDIR`/`TEMP`/`TMP`、`GOPATH`、`GOROOT`、`GOMODCACHE`、`APPDATA`、`LOCALAPPDATA`、`SYSTEMROOT`/`WINDIR`/`COMSPEC`/`PATHEXT`、`VIRTUAL_ENV`、`UV_CACHE_DIR`、`UV_PYTHON_INSTALL_DIR`、`PIP_CACHE_DIR`、`PYTHONUTF8`、`CARGO_HOME`、`RUSTUP_HOME`、`XDG_CACHE_HOME`、`XDG_DATA_HOME`、`LANG`、`LC_ALL`、`NODE_ENV`）；执行超时 `60s`；输出上限 `64KB`。

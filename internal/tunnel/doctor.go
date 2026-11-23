@@ -109,8 +109,16 @@ func localChecks(opts Options) []Check {
 	checks := []Check{dataDirCheck(opts)}
 	checks = append(checks, databaseCheck(opts)...)
 	if opts.Config != nil {
-		for _, ws := range opts.Config.Workspaces {
-			checks = append(checks, workspaceCheck(ws))
+		if len(opts.Config.Workspaces) > 0 {
+			for _, ws := range opts.Config.Workspaces {
+				checks = append(checks, workspaceCheck(ws))
+			}
+		} else {
+			checks = append(checks, Check{
+				Name:   "workspace mode",
+				Level:  Pass,
+				Detail: `dynamic (uses current directory on "wsbridge serve" or hot-switches via "wsbridge use <dir>")`,
+			})
 		}
 		checks = append(checks, checkManagedTunnelWith(opts.Config, opts.LookPath)...)
 	}

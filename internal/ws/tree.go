@@ -36,6 +36,11 @@ var heavyDirs = map[string]bool{
 // paths, symlinks, and known heavy directories are skipped. Entries are sorted
 // depth-first; cursor is an opaque offset into that ordering.
 func (w *Workspace) WalkTree(relPath string, maxDepth int, cursor string, limit int) (TreeResult, error) {
+	w.rootMu.RLock()
+	defer w.rootMu.RUnlock()
+	if w.closed {
+		return TreeResult{}, ErrWorkspaceClosed
+	}
 	rel, err := w.clean(relPath)
 	if err != nil {
 		return TreeResult{}, err

@@ -44,6 +44,11 @@ const (
 // every path it returns is re-validated against the sandbox denylist. The
 // pure-Go fallback walks the os.Root sandbox directly.
 func (w *Workspace) Search(ctx context.Context, opts SearchOptions) ([]SearchMatch, bool, error) {
+	w.rootMu.RLock()
+	defer w.rootMu.RUnlock()
+	if w.closed {
+		return nil, false, ErrWorkspaceClosed
+	}
 	if strings.TrimSpace(opts.Query) == "" {
 		return nil, false, fmt.Errorf("ws: search query must not be empty")
 	}

@@ -747,3 +747,67 @@ func TestAuthorizeCSPAllowsExternalRedirect(t *testing.T) {
 		t.Fatalf("CSP %q restricts form-action to 'self', which blocks 302 OAuth callback redirects in Chromium", csp)
 	}
 }
+
+func TestSimplifiedConsentDefaultWildcardGrant(t *testing.T) {
+	env := newTestEnv(t)
+	clientID := env.registerClient()
+	verifier, challenge := pkcePair(t)
+	q := url.Values{
+		"response_type":         {"code"},
+		"client_id":             {clientID},
+		"redirect_uri":          {env.redirect},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+		"state":                 {"dyn-state"},
+		"scope":                 {"mcp:tools offline_access"},
+		"resource":              {testIssuer + "/mcp"},
+	}
+	resp, err := env.client.Get(env.server.URL + "/oauth/authorize?" + q.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	page := string(raw)
+	if !strings.Contains(page, `name="permission" value="check" checked`) {
+		t.Errorf("consent page should default permission to check:\n%s", page)
+	}
+	if !strings.Contains(page, `<option value="720" selected>`) {
+		t.Errorf("consent page should default lifetime to 30 days")
+	}
+	if strings.Contains(page, `name="workspaces"`) {
+		t.Errorf("simplified consent page should not require workspace checkboxes")
+	}
+
+	id := string(authReqRE.FindSubmatch(raw)[1])
+	csrf := string(csrfRE.FindSubmatch(raw)[1])
+	// Submit without "workspaces" field (the simplified form).
+	postResp, err := env.client.PostForm(env.server.URL+"/oauth/authorize", url.Values{
+		"auth_req_id": {id},
+		"csrf_token":  {csrf},
+		"action":      {"approve"},
+		"permission":  {"check"},
+		"ttl_hours":   {"720"},
+		"passphrase":  {testPass},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusFound {
+		t.Fatalf("approve status = %d, want 302", postResp.StatusCode)
+	}
+	loc, err := url.Parse(postResp.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := loc.Query().Get("code")
+	tok := decodeToken(t, env.exchange(clientID, verifier, code))
+	principal, err := env.store.VerifyAccessToken(tok.AccessToken, testIssuer+"/mcp")
+	if err != nil {
+		t.Fatalf("VerifyAccessToken: %v", err)
+	}
+	if perm := principal.Workspaces[oauth.WildcardWorkspace]; perm != ws.PermCheck {
+		t.Fatalf("grant workspaces = %+v, want wildcard check", principal.Workspaces)
+	}
+}

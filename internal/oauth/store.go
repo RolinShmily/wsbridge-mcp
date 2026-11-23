@@ -39,6 +39,9 @@ const (
 	RefreshTokenPrefix = "wsb_rt_"
 	ClientIDPrefix     = "wsb_cli_"
 	GrantIDPrefix      = "wsb_grt_"
+	// WildcardWorkspace in GrantRecord.Workspaces authorizes whichever workspace(s)
+	// are currently active on the local wsbridge server.
+	WildcardWorkspace  = "*"
 	authorizationScope = "mcp:tools"
 	offlineAccessScope = "offline_access"
 	codeHashRetention  = 5 * time.Minute

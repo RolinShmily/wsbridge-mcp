@@ -109,8 +109,8 @@ func Register(s *mcp.Server, getScope ScopeFunc) {
 		writeFileSchema, "Write file", false, true, false),
 		h.writeFile)
 	mcp.AddTool(s, tool("run_check",
-		"Run a check from the workspace's configured whitelist (for example git_status, git_diff, or go_vet), with a 60s timeout.",
-		runCheckSchema, "Run check", false, false, true),
+		"Run a built-in project check command (Git, Go, Node, Python/uv/pip, Rust) inside the workspace with a 60s timeout. Call list_workspaces to see available checks.",
+		runCheckSchema, "Run check", false, true, false),
 		h.runCheck)
 }
 

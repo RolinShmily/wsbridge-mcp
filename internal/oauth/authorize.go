@@ -59,6 +59,8 @@ type consentView struct {
 	RedirectURI     string
 	RequestedScopes []string
 	Workspaces      []consentWorkspace
+	LocalMaxPerm    string
+	LocalCapped     bool
 	ErrorMessage    string
 	LockedSeconds   int
 }
@@ -195,9 +197,10 @@ func (s *Server) renderConsent(w http.ResponseWriter, status int, ar authRequest
 	if u, err := url.Parse(ar.RedirectURI); err == nil && u.Host != "" {
 		host = u.Host
 	}
-	workspaces := make([]consentWorkspace, 0, len(s.workspaces))
-	for _, ws := range s.workspaces {
-		workspaces = append(workspaces, consentWorkspace{Name: ws.Name, Path: ws.Path, MaxPerm: ws.MaxPerm})
+	current := s.currentWorkspaces()
+	workspaces := make([]consentWorkspace, 0, len(current))
+	for _, w := range current {
+		workspaces = append(workspaces, consentWorkspace{Name: w.Name, Path: w.Path, MaxPerm: w.MaxPerm})
 	}
 	if locked > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(locked))
@@ -211,6 +214,8 @@ func (s *Server) renderConsent(w http.ResponseWriter, status int, ar authRequest
 		RedirectURI:     ar.RedirectURI,
 		RequestedScopes: scopes,
 		Workspaces:      workspaces,
+		LocalMaxPerm:    s.localMaxPerm.String(),
+		LocalCapped:     s.localMaxPerm < ws.PermCheck,
 		ErrorMessage:    errMessage,
 		LockedSeconds:   locked,
 	})
@@ -303,21 +308,19 @@ func (s *Server) handleAuthorizePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	selected, errMessage := s.selectedWorkspaces(r.PostForm["workspaces"])
-	perm, err := ws.ParsePermission(strings.TrimSpace(r.PostForm.Get("permission")))
+	permRaw := strings.TrimSpace(r.PostForm.Get("permission"))
+	if permRaw == "" {
+		permRaw = ws.PermCheck.String()
+	}
+	perm, err := ws.ParsePermission(permRaw)
 	if errMessage == "" && err != nil {
 		errMessage = "Choose a permission level: read, write, or check."
 	}
-	if errMessage == "" {
-		for _, name := range selected {
-			for _, ws := range s.workspaces {
-				if ws.Name == name && perm > ws.MaxPerm {
-					errMessage = fmt.Sprintf("The selected permission %q exceeds the configured max_perm %q for workspace %q.",
-						perm, ws.MaxPerm, name)
-				}
-			}
-		}
+	ttlRaw := strings.TrimSpace(r.PostForm.Get("ttl_hours"))
+	if ttlRaw == "" {
+		ttlRaw = "720"
 	}
-	ttlHours, err := strconv.Atoi(strings.TrimSpace(r.PostForm.Get("ttl_hours")))
+	ttlHours, err := strconv.Atoi(ttlRaw)
 	if errMessage == "" && (err != nil || !validGrantTTLs[ttlHours]) {
 		errMessage = "Choose an authorization lifetime of 1, 24, 168, or 720 hours."
 	}
@@ -373,17 +376,23 @@ func (s *Server) handleAuthorizePost(w http.ResponseWriter, r *http.Request) {
 	s.redirectToClient(w, ar, url.Values{"code": {code}})
 }
 
-// selectedWorkspaces validates the checkbox values against the configured
-// workspaces, rejecting unknown names and duplicates.
+// selectedWorkspaces resolves the granted workspace set. When the simplified
+// consent form omits "workspaces", the grant follows whichever workspace is
+// currently active on the host (WildcardWorkspace). Explicit workspace names
+// submitted by legacy callers or tests remain supported.
 func (s *Server) selectedWorkspaces(values []string) ([]string, string) {
 	if len(values) == 0 {
-		return nil, "Select at least one workspace."
+		return []string{WildcardWorkspace}, ""
 	}
-	if len(values) > len(s.workspaces) {
+	if len(values) == 1 && values[0] == WildcardWorkspace {
+		return []string{WildcardWorkspace}, ""
+	}
+	current := s.currentWorkspaces()
+	if len(values) > len(current) {
 		return nil, "The workspace selection is invalid."
 	}
-	known := make(map[string]bool, len(s.workspaces))
-	for _, w := range s.workspaces {
+	known := make(map[string]bool, len(current))
+	for _, w := range current {
 		known[w.Name] = true
 	}
 	seen := make(map[string]bool, len(values))

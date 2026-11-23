@@ -119,7 +119,7 @@ func TestListToolsSchemasAndAnnotations(t *testing.T) {
 	readOnly := map[string]bool{
 		"list_workspaces": true, "get_file_tree": true, "search_code": true, "read_file": true,
 	}
-	destructive := map[string]bool{"edit_file": true, "write_file": true}
+	destructive := map[string]bool{"edit_file": true, "write_file": true, "run_check": true}
 	for name, tool := range names {
 		if tool.Annotations == nil {
 			t.Errorf("%s: annotations missing", name)

@@ -46,12 +46,22 @@ func GrantScope(manager *ws.Manager) tools.ScopeFunc {
 		if !ok || principal == nil {
 			return nil, errors.New("tool call has no grant principal")
 		}
+		scope := &tools.Scope{GrantID: principal.GrantID}
+		if wildcardPerm, ok := principal.Workspaces[oauth.WildcardWorkspace]; ok {
+			for _, w := range manager.Workspaces() {
+				perm := ws.MinPermission(wildcardPerm, w.MaxPerm())
+				scope.Allowed = append(scope.Allowed, tools.Access{Workspace: w, Permission: perm})
+			}
+			if len(scope.Allowed) == 0 {
+				return nil, errors.New(`no active workspace is selected; run "wsbridge use <dir>" on the host`)
+			}
+			return scope, nil
+		}
 		list := make([]string, 0, len(principal.Workspaces))
 		for name := range principal.Workspaces {
 			list = append(list, name)
 		}
 		sort.Strings(list)
-		scope := &tools.Scope{GrantID: principal.GrantID}
 		for _, name := range list {
 			w, ok := manager.Get(name)
 			if !ok {

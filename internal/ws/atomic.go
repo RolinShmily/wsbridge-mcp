@@ -22,6 +22,11 @@ var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 // replacing an existing file. The return values are the new SHA-256 and the
 // snapshot path (relative to <data_dir>/snapshots), if a snapshot was made.
 func (w *Workspace) WriteFileAtomic(grantID, relPath string, data []byte, expectSHA256 string, createOnly bool) (string, string, error) {
+	w.rootMu.RLock()
+	defer w.rootMu.RUnlock()
+	if w.closed {
+		return "", "", ErrWorkspaceClosed
+	}
 	if _, err := sanitizeName(grantID); err != nil {
 		return "", "", err
 	}

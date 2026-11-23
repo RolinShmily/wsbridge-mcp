@@ -7,43 +7,91 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 var builtinChecks = map[string][]string{
+	// Git
 	"git_status": {"git", "status", "--short", "--branch"},
 	"git_diff":   {"git", "diff"},
-	"go_vet":     {"go", "vet", "./..."},
-	"go_test":    {"go", "test", "./..."},
-	"npm_lint":   {"npm", "run", "lint"},
-	"npm_test":   {"npm", "test"},
+	"git_log":    {"git", "log", "-n", "20", "--oneline"},
+	// Go
+	"go_vet":   {"go", "vet", "./..."},
+	"go_test":  {"go", "test", "./..."},
+	"go_build": {"go", "build", "./..."},
+	// Node / JS / TS
+	"npm_lint":  {"npm", "run", "lint"},
+	"npm_test":  {"npm", "test"},
+	"npm_build": {"npm", "run", "build"},
+	// Python (pytest, ruff, mypy, uv, pip)
+	"pytest":        {"pytest"},
+	"ruff_check":    {"ruff", "check", "."},
+	"mypy":          {"mypy", "."},
+	"uv_pytest":     {"uv", "run", "pytest"},
+	"uv_ruff":       {"uv", "run", "ruff", "check", "."},
+	"uv_mypy":       {"uv", "run", "mypy", "."},
+	"uv_lock_check": {"uv", "lock", "--check"},
+	"uv_pip_list":   {"uv", "pip", "list"},
+	"uv_pip_check":  {"uv", "pip", "check"},
+	"pip_list":      {"pip", "list"},
+	"pip_check":     {"pip", "check"},
+	// Rust
+	"cargo_check": {"cargo", "check"},
+	"cargo_test":  {"cargo", "test"},
+}
+
+// KnownCheck reports whether name is a built-in run_check identifier.
+func KnownCheck(name string) bool {
+	_, ok := builtinChecks[name]
+	return ok
+}
+
+// BuiltinCheckNames returns all built-in check identifiers in sorted order.
+func BuiltinCheckNames() []string {
+	names := make([]string, 0, len(builtinChecks))
+	for name := range builtinChecks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 var checkEnvAllow = map[string]bool{
 	"PATH": true, "HOME": true, "USERPROFILE": true,
-	"TMPDIR": true, "TEMP": true,
+	"TMPDIR": true, "TEMP": true, "TMP": true,
 	"GOPATH": true, "GOROOT": true, "GOMODCACHE": true,
 	"APPDATA": true, "LOCALAPPDATA": true,
+	"SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PATHEXT": true,
+	"VIRTUAL_ENV": true, "UV_CACHE_DIR": true, "UV_PYTHON_INSTALL_DIR": true,
+	"PIP_CACHE_DIR": true, "PYTHONUTF8": true,
+	"CARGO_HOME": true, "RUSTUP_HOME": true,
+	"XDG_CACHE_HOME": true, "XDG_DATA_HOME": true,
+	"LANG": true, "LC_ALL": true, "NODE_ENV": true,
 }
 
-// RunCheck executes a configured whitelist check inside the workspace.
+// RunCheck executes a built-in check inside the workspace. When the workspace
+// configured an explicit check whitelist, only those identifiers are permitted;
+// otherwise every built-in check is enabled by default.
 // A non-zero exit status is reported via exitCode with a nil error.
 func (w *Workspace) RunCheck(ctx context.Context, checkName string) (string, int, error) {
-	allowed := false
-	for _, check := range w.checks {
-		if check == checkName {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		return "", 0, fmt.Errorf("%w: %q", ErrCheckNotAllowed, checkName)
-	}
 	argv, ok := builtinChecks[checkName]
 	if !ok || len(argv) == 0 {
 		return "", 0, fmt.Errorf("%w: %q", ErrUnknownCheck, checkName)
+	}
+	if len(w.checks) > 0 {
+		allowed := false
+		for _, check := range w.checks {
+			if check == checkName {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", 0, fmt.Errorf("%w: %q", ErrCheckNotAllowed, checkName)
+		}
 	}
 	if ctx == nil {
 		ctx = context.Background()

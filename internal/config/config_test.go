@@ -93,6 +93,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.Listen != config.DefaultListen {
 		t.Errorf("Listen = %q, want %q", cfg.Listen, config.DefaultListen)
 	}
+	if cfg.EffectiveMaxPerm() != config.PermCheck {
+		t.Errorf("EffectiveMaxPerm = %q, want %q", cfg.EffectiveMaxPerm(), config.PermCheck)
+	}
 	if cfg.MaxSnapshotsPerGrant != config.DefaultMaxSnapshotsPerGrant {
 		t.Errorf("MaxSnapshotsPerGrant = %d", cfg.MaxSnapshotsPerGrant)
 	}
@@ -516,5 +519,36 @@ func TestTunnelConfigValidation(t *testing.T) {
 				t.Fatalf("default Tunnel.Binary = %q, want %q", cfg.Tunnel.Binary, "cloudflared")
 			}
 		})
+	}
+}
+
+func TestGlobalMaxPermAndExpandedChecks(t *testing.T) {
+	wsDir := t.TempDir()
+	cfgPath, _ := writeConfigFile(t, `
+public_url = "https://bridge.example.com"
+max_perm = "write"
+
+[[workspace]]
+name = "pyapp"
+path = "`+escapeTOML(wsDir)+`"
+checks = ["uv_pytest", "uv_ruff", "uv_pip_list", "pip_check", "pytest"]
+`)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.EffectiveMaxPerm() != config.PermWrite {
+		t.Errorf("EffectiveMaxPerm = %q, want write", cfg.EffectiveMaxPerm())
+	}
+	if cfg.Workspaces[0].MaxPerm != config.PermWrite {
+		t.Errorf("workspace default MaxPerm = %q, want inherited write", cfg.Workspaces[0].MaxPerm)
+	}
+
+	badPath, _ := writeConfigFile(t, `
+public_url = "https://bridge.example.com"
+max_perm = "root"
+`)
+	if _, err := config.Load(badPath); err == nil {
+		t.Fatal("expected invalid global max_perm to fail")
 	}
 }

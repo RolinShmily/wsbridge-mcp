@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"wsbridge/internal/ws"
 )
 
 const (
@@ -56,14 +58,25 @@ type Config struct {
 	PublicURL            string      `toml:"public_url"`
 	Listen               string      `toml:"listen"`
 	DataDir              string      `toml:"data_dir,omitempty"`
+	MaxPerm              Permission  `toml:"max_perm,omitempty"`
 	AllowRedirectHosts   []string    `toml:"allow_redirect_hosts,omitempty"`
 	DenyPatterns         []string    `toml:"deny_patterns,omitempty"`
 	MaxSnapshotsPerGrant int         `toml:"max_snapshots_per_grant"`
 	Tunnel               Tunnel      `toml:"tunnel,omitempty"`
-	Workspaces           []Workspace `toml:"workspace"`
+	Workspaces           []Workspace `toml:"workspace,omitempty"`
 
 	// path is the absolute path this configuration was loaded from or saved to.
 	path string
+}
+
+// EffectiveMaxPerm returns the configured local permission ceiling, defaulting
+// to PermCheck (full access) when omitted so the OAuth consent page controls
+// each connection's permission.
+func (c *Config) EffectiveMaxPerm() Permission {
+	if c.MaxPerm != "" {
+		return c.MaxPerm
+	}
+	return PermCheck
 }
 
 // Tunnel configures an optional managed tunnel subprocess (for example cloudflared).
@@ -82,15 +95,6 @@ type LoadOptions struct {
 }
 
 var workspaceNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-
-var knownChecks = map[string]bool{
-	"git_status": true,
-	"git_diff":   true,
-	"go_vet":     true,
-	"go_test":    true,
-	"npm_lint":   true,
-	"npm_test":   true,
-}
 
 // DefaultPath returns <os.UserConfigDir()>/wsbridge/config.toml.
 func DefaultPath() (string, error) {
@@ -170,6 +174,9 @@ func (c *Config) ValidateWith(opts LoadOptions) error {
 	if c.DataDir != "" && !filepath.IsAbs(c.DataDir) {
 		return fmt.Errorf("config: data_dir %q must be an absolute path", c.DataDir)
 	}
+	if c.MaxPerm != "" && !c.MaxPerm.Valid() {
+		return fmt.Errorf("config: invalid max_perm %q (want read, write, or check)", c.MaxPerm)
+	}
 	if c.MaxSnapshotsPerGrant < 0 {
 		return fmt.Errorf("config: max_snapshots_per_grant must be >= 0")
 	}
@@ -182,13 +189,14 @@ func (c *Config) ValidateWith(opts LoadOptions) error {
 	if err := c.validateTunnel(); err != nil {
 		return err
 	}
-	return validateWorkspaces(c.Workspaces)
+	return validateWorkspaces(c.Workspaces, c.EffectiveMaxPerm())
 }
 
 func (c *Config) normalize() {
 	c.PublicURL = strings.TrimSpace(c.PublicURL)
 	c.Listen = strings.TrimSpace(c.Listen)
 	c.DataDir = strings.TrimSpace(c.DataDir)
+	c.MaxPerm = Permission(strings.TrimSpace(string(c.MaxPerm)))
 	c.Tunnel.Provider = strings.ToLower(strings.TrimSpace(c.Tunnel.Provider))
 	c.Tunnel.Binary = strings.TrimSpace(c.Tunnel.Binary)
 	c.Tunnel.TokenFile = strings.TrimSpace(c.Tunnel.TokenFile)
@@ -331,36 +339,40 @@ func (c *Config) validateTunnel() error {
 	}
 }
 
-func validateWorkspaces(workspaces []Workspace) error {
+func validateWorkspaces(workspaces []Workspace, defaultMaxPerm Permission) error {
 	seen := make(map[string]bool, len(workspaces))
-	for i, ws := range workspaces {
-		if ws.Name == "" {
+	for i := range workspaces {
+		w := &workspaces[i]
+		if w.Name == "" {
 			return fmt.Errorf("config: workspace[%d]: name is required", i)
 		}
-		if ws.Name == "." || ws.Name == ".." || !workspaceNameRE.MatchString(ws.Name) {
-			return fmt.Errorf("config: workspace[%d]: name %q must match [a-zA-Z0-9._-]+ and must not be '.' or '..'", i, ws.Name)
+		if w.Name == "." || w.Name == ".." || !workspaceNameRE.MatchString(w.Name) {
+			return fmt.Errorf("config: workspace[%d]: name %q must match [a-zA-Z0-9._-]+ and must not be '.' or '..'", i, w.Name)
 		}
-		if seen[ws.Name] {
-			return fmt.Errorf("config: workspace[%d]: duplicate name %q", i, ws.Name)
+		if seen[w.Name] {
+			return fmt.Errorf("config: workspace[%d]: duplicate name %q", i, w.Name)
 		}
-		seen[ws.Name] = true
+		seen[w.Name] = true
 
-		if !filepath.IsAbs(ws.Path) {
-			return fmt.Errorf("config: workspace %q: path %q must be absolute", ws.Name, ws.Path)
+		if !filepath.IsAbs(w.Path) {
+			return fmt.Errorf("config: workspace %q: path %q must be absolute", w.Name, w.Path)
 		}
-		info, err := os.Stat(ws.Path)
+		info, err := os.Stat(w.Path)
 		if err != nil {
-			return fmt.Errorf("config: workspace %q: path %q is not accessible: %w", ws.Name, ws.Path, err)
+			return fmt.Errorf("config: workspace %q: path %q is not accessible: %w", w.Name, w.Path, err)
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("config: workspace %q: path %q is not a directory", ws.Name, ws.Path)
+			return fmt.Errorf("config: workspace %q: path %q is not a directory", w.Name, w.Path)
 		}
-		if !ws.MaxPerm.Valid() {
-			return fmt.Errorf("config: workspace %q: invalid max_perm %q (want read, write, or check)", ws.Name, ws.MaxPerm)
+		if w.MaxPerm == "" {
+			w.MaxPerm = defaultMaxPerm
 		}
-		for _, check := range ws.Checks {
-			if !knownChecks[check] {
-				return fmt.Errorf("config: workspace %q: unknown check %q", ws.Name, check)
+		if !w.MaxPerm.Valid() {
+			return fmt.Errorf("config: workspace %q: invalid max_perm %q (want read, write, or check)", w.Name, w.MaxPerm)
+		}
+		for _, check := range w.Checks {
+			if !ws.KnownCheck(check) {
+				return fmt.Errorf("config: workspace %q: unknown check %q", w.Name, check)
 			}
 		}
 	}
@@ -429,10 +441,10 @@ func writeFileAtomic(path string, data []byte) error {
 }
 
 // ExampleTOML is the initial config.toml written by "wsbridge init". It is
-// syntactically valid; the user must review public_url and add workspaces.
+// syntactically valid; workspaces are selected dynamically from the working
+// directory or via "wsbridge use <dir>" unless [[workspace]] blocks are added.
 const ExampleTOML = `# wsbridge configuration
 #
-# Review every value below before starting the service.
 # public_url MUST be the stable HTTPS origin of your tunnel and must not
 # contain a trailing slash or a path (for example: https://my-box.tail1234.ts.net).
 
@@ -442,9 +454,14 @@ public_url = "https://my-box.tail1234.ts.net"
 # forwards to this address.
 listen = "127.0.0.1:8787"
 
-# Directory for wsbridge.db, audit.jsonl, and snapshots/.
+# Directory for wsbridge.db, audit.jsonl, snapshots/, and active workspace state.
 # Leave empty to use the directory that contains this file.
 data_dir = ""
+
+# Optional local permission ceiling ("read", "write", or "check").
+# Leave omitted to allow full access ("check") and govern each connection's
+# permission from the OAuth consent page.
+# max_perm = "check"
 
 # Extra OAuth redirect hosts (exact host names added to the built-in allowlist).
 allow_redirect_hosts = []
@@ -460,16 +477,15 @@ max_snapshots_per_grant = 20
 # or another reverse proxy separately.
 # [tunnel]
 # provider = "cloudflared"
-# token_file = "/path/to/cloudflared-token"
+# token_file = "cloudflared-token"
 # # or: token_env = "CLOUDFLARE_TUNNEL_TOKEN"
 
-# Add one [[workspace]] block per local directory you want to expose.
-# name must be unique and match [a-zA-Z0-9._-]+; path must be an absolute
-# existing directory; max_perm is "read", "write", or "check".
+# Workspaces are optional. By default, "wsbridge serve" exposes the current
+# working directory and "wsbridge use <dir>" hot-switches the active directory
+# without disconnecting remote MCP clients.
 #
+# Uncomment to pin static workspaces instead:
 # [[workspace]]
 # name = "myapp"
 # path = "/home/me/code/myapp"
-# max_perm = "write"
-# checks = ["git_status", "git_diff"]
 `

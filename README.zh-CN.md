@@ -6,10 +6,11 @@
 
 ## 核心特性
 
-- **单二进制零运行时依赖**：Go ≥ 1.25，`CGO_ENABLED=0` 静态编译，内置 `bbolt`、Argon2id、OAuth 2.1 同意页与 MCP Server。
-- **内置 OAuth 2.1 + Grant 模型**：支持 PRM、AS 元数据、DCR、PKCE S256、Refresh Token 轮换（30s 宽限期）与重放吊销；授权精确绑定工作区、权限（`read` / `write` / `check`）与有效期。
+- **单二进制零运行时依赖**：Go ≥ 1.25，`CGO_ENABLED=0` 静态编译，内置 `bbolt`、Argon2id、极简 OAuth 2.1 同意页与 MCP Server。
+- **动态工作区与热切换**：`wsbridge serve` 默认服务当前工作目录；任意项目目录下运行 `wsbridge use` 可实时热切换运行中的活跃工作区，隧道不断线、远端无需重新 OAuth 授权。
+- **内置 OAuth 2.1 + 连接级权限管理**：支持 PRM、AS 元数据、DCR、PKCE S256、Refresh Token 轮换（30s 宽限期）与重放吊销；权限（默认全开 `check`，可选 `write`/`read`）完全在浏览器同意页控制，变更权限只需断开重连。
 - **`os.Root` 内核级沙盒**：基于 Go `os.OpenRoot` 阻断路径穿越与符号链接逃逸，拦截 Windows 保留设备名与 ADS，默认屏蔽 `.git`、`.ssh`、`.env` 与私钥文件。
-- **写前快照与固定检查白名单**：修改前自动保存外部快照，覆盖文件校验 `expected_sha256`；`run_check` 仅支持预编译固定检查枚举（`git_status`、`git_diff`、`go_vet`、`go_test`、`npm_lint`、`npm_test`）。
+- **写前快照与内置项目检查**：修改前自动保存外部快照，覆盖文件校验 `expected_sha256`；`run_check` 默认开放全套预编译项目检查（Git / Go / Node / Python `pytest`、`ruff`、`mypy`、`uv`、`pip` / Rust）。
 - **托管内网穿透**：首选内置托管 `cloudflared`（`[tunnel]`，`wsbridge` 退出时一并回收），次选 `tailscale funnel`。
 
 ## 快速上手
@@ -22,32 +23,43 @@ CGO_ENABLED=0 go build -o wsbridge ./cmd/wsbridge
 
 ### 2. 交互式初始化
 
-在终端直接执行 `init`，按提示输入工作区路径、权限、穿透方案（首选 `cloudflared`、次选 `tailscale funnel`）、`public_url` 与管理员口令：
+只需初始化一次，配置穿透方案（首选 `cloudflared`、次选 `tailscale funnel`）、`public_url` 与管理员口令（无需写死工作区和权限）：
 
 ```bash
-./wsbridge init
+wsbridge init
 ```
 
 如需脚本化生成示例配置后再手动编辑：
 
 ```bash
-./wsbridge init --non-interactive
-./wsbridge passwd
+wsbridge init --non-interactive
+wsbridge passwd
 ```
 
-### 3. 启动与自检
+### 3. 启动、热切换项目与自检
 
 ```bash
-./wsbridge serve
-# 另开终端检查本地配置、托管隧道与公网连通性
-./wsbridge doctor --timeout 10s
+# 在任意项目目录直接启动：
+cd /path/to/project-a
+wsbridge serve
+
+# 另开终端切到其他项目目录，热切换活跃工作区（远端免重连）：
+cd /path/to/project-b
+wsbridge use
+
+# 查看当前活跃工作区：
+wsbridge use --show
+
+# 检查本地配置、托管隧道与公网连通性：
+wsbridge doctor --timeout 10s
 ```
 
 如需以用户级后台服务常驻运行（systemd / launchd / Windows Service）：
 
 ```bash
-./wsbridge service install
-./wsbridge service start
+wsbridge service install
+wsbridge service start
+# 常驻后在任意项目目录执行 wsbridge use 即可秒切工作区
 ```
 
 ### 4. 接入 AI 平台
@@ -80,4 +92,3 @@ wsbridge serve --debug-oauth          # 脱敏输出 OAuth/MCP 调试日志
 
 - 协议：[MIT](LICENSE)
 - 作者：RoL1n_SrP (`contact@srprolin.com`)
-*** Delete File: README.md

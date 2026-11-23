@@ -26,6 +26,7 @@ import (
 
 	"wsbridge/internal/audit"
 	"wsbridge/internal/config"
+	"wsbridge/internal/control"
 	"wsbridge/internal/httpx"
 	"wsbridge/internal/mcpsrv"
 	"wsbridge/internal/oauth"
@@ -69,6 +70,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runInit(configFlag, commandArgs, stdout, stderr)
 	case "serve":
 		return runServe(configFlag, commandArgs, stdout, stderr)
+	case "use":
+		return runUse(configFlag, commandArgs, stdout, stderr)
 	case "passwd":
 		return runPasswd(configFlag, commandArgs, os.Stdin, stdout, stderr)
 	case "grants":
@@ -91,8 +94,9 @@ Usage:
   wsbridge [--config <path>] <command> [options]
 
 Commands:
-  serve    Start the HTTP bridge
-  init     Create an example config.toml
+  serve    Start the HTTP bridge (defaults to current directory)
+  use      Hot-switch the active workspace directory (defaults to .)
+  init     Create config.toml and set up tunnel + passphrase
   passwd   Set the administrator password
   grants   List, revoke, or prune OAuth grants
   doctor   Diagnose configuration and public connectivity
@@ -211,9 +215,9 @@ func runInit(configFlag string, args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "Created %s\n\n", cfgPath)
 	fmt.Fprintf(stdout, "Next steps:\n")
-	fmt.Fprintf(stdout, "  1. Edit %s and set public_url plus at least one [[workspace]].\n", cfgPath)
+	fmt.Fprintf(stdout, "  1. Edit %s and set public_url (plus [tunnel] if using cloudflared).\n", cfgPath)
 	fmt.Fprintf(stdout, "  2. Run: wsbridge passwd   (set the administrator password)\n")
-	fmt.Fprintf(stdout, "  3. Run: wsbridge serve    (start the bridge behind your HTTPS tunnel)\n")
+	fmt.Fprintf(stdout, "  3. Run: wsbridge serve    (from any project directory, or switch live with \"wsbridge use <dir>\")\n")
 	return exitOK
 }
 
@@ -236,71 +240,11 @@ func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, 
 		return val, nil
 	}
 
-	cwd, _ := os.Getwd()
-	defaultName := filepath.Base(cwd)
-	if defaultName == "" || defaultName == "." || defaultName == string(filepath.Separator) {
-		defaultName = "workspace"
-	}
-
 	fmt.Fprintln(stdout, "wsbridge interactive setup")
 	fmt.Fprintf(stdout, "Config file: %s\n", cfgPath)
 	fmt.Fprintln(stdout, "--------------------------")
-
-	var workspaces []config.Workspace
-	for {
-		nameDef := defaultName
-		if len(workspaces) > 0 {
-			nameDef = ""
-		}
-		name, err := prompt("Workspace name", nameDef)
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		pathDef := cwd
-		if len(workspaces) > 0 {
-			pathDef = ""
-		}
-		wsPath, err := prompt("Workspace directory", pathDef)
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		permStr, err := prompt("Max permission (read/write/check)", "write")
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		defaultChecks := ""
-		if _, err := os.Stat(filepath.Join(wsPath, ".git")); err == nil {
-			defaultChecks = "git_status,git_diff"
-		}
-		checksRaw, err := prompt("Allowed checks (comma-separated, or empty)", defaultChecks)
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		var checks []string
-		for _, item := range strings.Split(checksRaw, ",") {
-			if c := strings.TrimSpace(item); c != "" {
-				checks = append(checks, c)
-			}
-		}
-		workspaces = append(workspaces, config.Workspace{
-			Name:    name,
-			Path:    wsPath,
-			MaxPerm: config.Permission(permStr),
-			Checks:  checks,
-		})
-		more, err := prompt("Add another workspace? (y/N)", "n")
-		if err != nil {
-			fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
-			return exitError
-		}
-		if !strings.EqualFold(more, "y") && !strings.EqualFold(more, "yes") {
-			break
-		}
-	}
+	fmt.Fprintln(stdout, "Workspaces follow your working directory automatically (or switch live with \"wsbridge use\").")
+	fmt.Fprintln(stdout, "Connection permissions are managed in the browser OAuth consent page.")
 
 	fmt.Fprintln(stdout, "\nTunnel setup:")
 	fmt.Fprintln(stdout, "  1) cloudflared (managed by wsbridge, recommended)")
@@ -363,7 +307,6 @@ func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, 
 		Listen:               listen,
 		MaxSnapshotsPerGrant: config.DefaultMaxSnapshotsPerGrant,
 		Tunnel:               tun,
-		Workspaces:           workspaces,
 	}
 	if err := cfg.Save(cfgPath); err != nil {
 		fmt.Fprintf(stderr, "wsbridge init: %v\n", err)
@@ -443,10 +386,12 @@ func runInitInteractive(cfgPath string, in io.Reader, stdout, stderr io.Writer, 
 	fmt.Fprintln(stdout, "Next steps:")
 	if choice == "2" || choice == "tailscale" {
 		fmt.Fprintf(stdout, "  1. Start Tailscale Funnel: tailscale funnel --bg %s\n", portFromListen(cfg.Listen))
-		fmt.Fprintln(stdout, "  2. Run: wsbridge serve")
+		fmt.Fprintln(stdout, "  2. In any project directory, run: wsbridge serve")
+		fmt.Fprintln(stdout, "     (or switch a running daemon anytime with: wsbridge use <dir>)")
 		fmt.Fprintln(stdout, "  3. Run: wsbridge doctor --timeout 10s")
 	} else {
-		fmt.Fprintln(stdout, "  1. Run: wsbridge serve")
+		fmt.Fprintln(stdout, "  1. In any project directory, run: wsbridge serve")
+		fmt.Fprintln(stdout, "     (or switch a running daemon anytime with: wsbridge use <dir>)")
 		fmt.Fprintln(stdout, "  2. Run: wsbridge doctor --timeout 10s")
 	}
 	return exitOK
@@ -483,15 +428,20 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 	devCORS := fs.Bool("dev-cors", false, "allow localhost browser clients (MCP Inspector)")
 	iKnow := fs.Bool("i-know-what-i-am-doing", false, "allow running as root/SYSTEM")
 	allowHTTP := fs.Bool("allow-http-public-url", false, "allow an http:// public_url (loopback tests only)")
+	maxPermFlag := fs.String("max-perm", "", "optional local permission cap (read, write, or check)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
 		return exitUsage
 	}
-	if fs.NArg() != 0 {
-		fmt.Fprintf(stderr, "wsbridge serve: unexpected arguments: %v\n", fs.Args())
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "wsbridge serve: expected at most 1 workspace directory, got: %v\n", fs.Args())
 		return exitUsage
+	}
+	dirArg := ""
+	if fs.NArg() == 1 {
+		dirArg = fs.Arg(0)
 	}
 
 	cfgPath, err := resolveConfigPath(configFlag)
@@ -503,6 +453,20 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 	if err != nil {
 		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
 		return exitError
+	}
+
+	localCap, err := ws.ParsePermission(string(cfg.EffectiveMaxPerm()))
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
+		return exitError
+	}
+	if strings.TrimSpace(*maxPermFlag) != "" {
+		overrideCap, err := ws.ParsePermission(*maxPermFlag)
+		if err != nil {
+			fmt.Fprintf(stderr, "wsbridge serve: --max-perm: %v\n", err)
+			return exitUsage
+		}
+		localCap = ws.MinPermission(localCap, overrideCap)
 	}
 
 	if !*iKnow {
@@ -528,7 +492,7 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
 		return exitError
 	}
-	workspaces, err := workspaceConfigs(cfg)
+	workspaces, err := resolveInitialWorkspaces(cfg, dataDir, dirArg, localCap, service.Hosted(), logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
 		return exitError
@@ -552,10 +516,6 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 	defer auditLogger.Close()
 
 	mux := http.NewServeMux()
-	if len(cfg.Workspaces) == 0 {
-		fmt.Fprintln(stderr, "wsbridge serve: at least one [[workspace]] is required")
-		return exitError
-	}
 	store, err := oauth.OpenStore(filepath.Join(dataDir, "wsbridge.db"), oauth.StoreOptions{Issuer: cfg.PublicURL})
 	if err != nil {
 		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
@@ -580,7 +540,10 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 		Audit:              auditLogger,
 		Logger:             logger,
 		AllowRedirectHosts: cfg.AllowRedirectHosts,
-		Workspaces:         workspaceChoices(cfg),
+		WorkspacesProvider: func() []oauth.WorkspaceChoice {
+			return managerWorkspaceChoices(manager)
+		},
+		LocalMaxPerm: localCap,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "wsbridge serve: %v\n", err)
@@ -607,6 +570,49 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 		return exitError
 	}
 	mcpServer.Mount(mux)
+
+	ctrlServer, err := control.Start(dataDir, control.Handlers{
+		List: func() []control.WorkspaceInfo {
+			return managerControlWorkspaces(manager)
+		},
+		Switch: func(targetPath, customName string) (control.WorkspaceInfo, error) {
+			absPath, name, err := resolveWorkspaceDir(targetPath, customName)
+			if err != nil {
+				return control.WorkspaceInfo{}, err
+			}
+			active, err := manager.SetActive(ws.WorkspaceConfig{
+				Name:    name,
+				Path:    absPath,
+				MaxPerm: localCap,
+			})
+			if err != nil {
+				return control.WorkspaceInfo{}, err
+			}
+			if saveErr := control.SaveActiveWorkspace(dataDir, control.ActiveWorkspace{
+				Name: active.Name(),
+				Path: active.HostPath(),
+			}); saveErr != nil {
+				logger.Warn("save active workspace state failed", "error", saveErr)
+			}
+			if logErr := auditLogger.Log("workspace_switch", map[string]any{
+				"workspace": active.Name(),
+				"path":      active.HostPath(),
+			}); logErr != nil {
+				logger.Warn("audit write failed", "event", "workspace_switch", "error", logErr)
+			}
+			logger.Info("active workspace switched", "workspace", active.Name(), "path", active.HostPath())
+			return control.WorkspaceInfo{
+				Name:    active.Name(),
+				Path:    active.HostPath(),
+				MaxPerm: active.MaxPerm().String(),
+			}, nil
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge serve: start local control server: %v\n", err)
+		return exitError
+	}
+	defer func() { _ = ctrlServer.Close(context.Background()) }()
 
 	srv := httpx.New(httpx.Options{
 		Addr:       listen,
@@ -639,7 +645,8 @@ func runServeContext(parent context.Context, configFlag string, args []string, s
 		}()
 	}
 
-	logger.Info("wsbridge starting", "listen", listen, "public_url", cfg.PublicURL)
+	activeNames := manager.Names()
+	logger.Info("wsbridge starting", "listen", listen, "public_url", cfg.PublicURL, "workspaces", activeNames, "max_perm", localCap.String())
 	var exitCode int
 	if service.Hosted() {
 		exitCode = runHostedServe(ctx, stop, srv, logger)
@@ -705,10 +712,198 @@ func runHostedServeWith(ctx context.Context, stop context.CancelFunc, srv *httpx
 	return exitOK
 }
 
+func resolveInitialWorkspaces(cfg *config.Config, dataDir, dirArg string, localCap ws.Permission, hosted bool, logger *slog.Logger) ([]ws.WorkspaceConfig, error) {
+	if strings.TrimSpace(dirArg) != "" {
+		absPath, name, err := resolveWorkspaceDir(dirArg, "")
+		if err != nil {
+			return nil, err
+		}
+		if err := control.SaveActiveWorkspace(dataDir, control.ActiveWorkspace{Name: name, Path: absPath}); err != nil && logger != nil {
+			logger.Warn("save active workspace state failed", "error", err)
+		}
+		return []ws.WorkspaceConfig{{Name: name, Path: absPath, MaxPerm: localCap}}, nil
+	}
+	if len(cfg.Workspaces) > 0 {
+		out, err := workspaceConfigs(cfg)
+		if err != nil {
+			return nil, err
+		}
+		for i := range out {
+			out[i].MaxPerm = ws.MinPermission(out[i].MaxPerm, localCap)
+		}
+		return out, nil
+	}
+	if hosted {
+		saved, err := control.LoadActiveWorkspace(dataDir)
+		if err == nil {
+			absPath, name, dirErr := resolveWorkspaceDir(saved.Path, saved.Name)
+			if dirErr == nil {
+				return []ws.WorkspaceConfig{{Name: name, Path: absPath, MaxPerm: localCap}}, nil
+			}
+			if logger != nil {
+				logger.Warn("saved active workspace is not accessible; starting without an active workspace", "path", saved.Path, "error", dirErr)
+			}
+		} else if logger != nil {
+			logger.Info(`no active workspace selected yet; run "wsbridge use <dir>" to select a project`)
+		}
+		return nil, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve working directory: %w", err)
+	}
+	absPath, name, err := resolveWorkspaceDir(cwd, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := control.SaveActiveWorkspace(dataDir, control.ActiveWorkspace{Name: name, Path: absPath}); err != nil && logger != nil {
+		logger.Warn("save active workspace state failed", "error", err)
+	}
+	return []ws.WorkspaceConfig{{Name: name, Path: absPath, MaxPerm: localCap}}, nil
+}
+
+func resolveWorkspaceDir(rawPath, customName string) (absPath, name string, err error) {
+	target := strings.TrimSpace(rawPath)
+	if target == "" {
+		target = "."
+	}
+	absPath, err = filepath.Abs(target)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve directory %q: %w", rawPath, err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", "", fmt.Errorf("directory %q is not accessible: %w", absPath, err)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("%q is not a directory", absPath)
+	}
+	name = strings.TrimSpace(customName)
+	if name == "" {
+		name = ws.DeriveWorkspaceName(absPath)
+	}
+	return absPath, name, nil
+}
+
+func managerWorkspaceChoices(manager *ws.Manager) []oauth.WorkspaceChoice {
+	active := manager.Workspaces()
+	out := make([]oauth.WorkspaceChoice, 0, len(active))
+	for _, w := range active {
+		out = append(out, oauth.WorkspaceChoice{
+			Name:    w.Name(),
+			Path:    w.HostPath(),
+			MaxPerm: w.MaxPerm(),
+			Checks:  w.AllowedChecks(),
+		})
+	}
+	return out
+}
+
+func managerControlWorkspaces(manager *ws.Manager) []control.WorkspaceInfo {
+	active := manager.Workspaces()
+	out := make([]control.WorkspaceInfo, 0, len(active))
+	for _, w := range active {
+		out = append(out, control.WorkspaceInfo{
+			Name:    w.Name(),
+			Path:    w.HostPath(),
+			MaxPerm: w.MaxPerm().String(),
+		})
+	}
+	return out
+}
+
+func runUse(configFlag string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("use", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	nameFlag := fs.String("name", "", "optional workspace name (defaults to directory basename)")
+	show := fs.Bool("show", false, "display the currently active workspace without switching")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		return exitUsage
+	}
+	if *show && fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "wsbridge use: --show does not take a directory argument")
+		return exitUsage
+	}
+	if fs.NArg() > 1 {
+		fmt.Fprintf(stderr, "wsbridge use: expected at most 1 directory argument, got: %v\n", fs.Args())
+		return exitUsage
+	}
+
+	cfg, dataDir, err := loadConfigAndDataDir(configFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge use: %v\n", err)
+		return exitError
+	}
+
+	if *show {
+		live, err := control.GetWorkspaces(context.Background(), dataDir)
+		if err == nil {
+			if len(live) == 0 {
+				fmt.Fprintln(stdout, "No active workspace selected (wsbridge serve is running).")
+				return exitOK
+			}
+			for _, w := range live {
+				fmt.Fprintf(stdout, "%s\t%s\t(max_perm=%s, live)\n", w.Name, w.Path, w.MaxPerm)
+			}
+			return exitOK
+		}
+		if !errors.Is(err, control.ErrNotRunning) {
+			fmt.Fprintf(stderr, "wsbridge use: query running server: %v\n", err)
+			return exitError
+		}
+		if saved, loadErr := control.LoadActiveWorkspace(dataDir); loadErr == nil {
+			fmt.Fprintf(stdout, "%s\t%s\t(saved, server not running)\n", saved.Name, saved.Path)
+			return exitOK
+		}
+		if len(cfg.Workspaces) > 0 {
+			for _, w := range cfg.Workspaces {
+				fmt.Fprintf(stdout, "%s\t%s\t(configured, server not running)\n", w.Name, w.Path)
+			}
+			return exitOK
+		}
+		fmt.Fprintln(stdout, "No active workspace saved (wsbridge serve is not running).")
+		return exitOK
+	}
+
+	target := "."
+	if fs.NArg() == 1 {
+		target = fs.Arg(0)
+	}
+	absPath, name, err := resolveWorkspaceDir(target, *nameFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "wsbridge use: %v\n", err)
+		return exitError
+	}
+	if err := control.SaveActiveWorkspace(dataDir, control.ActiveWorkspace{Name: name, Path: absPath}); err != nil {
+		fmt.Fprintf(stderr, "wsbridge use: %v\n", err)
+		return exitError
+	}
+
+	switched, err := control.SwitchWorkspace(context.Background(), dataDir, absPath, name)
+	if err == nil {
+		fmt.Fprintf(stdout, "Switched active workspace to %s (%s)\n", switched.Name, switched.Path)
+		return exitOK
+	}
+	if errors.Is(err, control.ErrNotRunning) {
+		fmt.Fprintf(stdout, "Saved active workspace: %s (%s)\n", name, absPath)
+		fmt.Fprintln(stdout, "Note: wsbridge serve is not running; this workspace will be used on next start.")
+		return exitOK
+	}
+	fmt.Fprintf(stderr, "wsbridge use: %v\n", err)
+	return exitError
+}
+
 func workspaceConfigs(cfg *config.Config) ([]ws.WorkspaceConfig, error) {
 	out := make([]ws.WorkspaceConfig, 0, len(cfg.Workspaces))
 	for _, wsCfg := range cfg.Workspaces {
-		perm, err := ws.ParsePermission(string(wsCfg.MaxPerm))
+		permRaw := wsCfg.MaxPerm
+		if permRaw == "" {
+			permRaw = cfg.EffectiveMaxPerm()
+		}
+		perm, err := ws.ParsePermission(string(permRaw))
 		if err != nil {
 			return nil, fmt.Errorf("workspace %q: %w", wsCfg.Name, err)
 		}
@@ -720,20 +915,6 @@ func workspaceConfigs(cfg *config.Config) ([]ws.WorkspaceConfig, error) {
 		})
 	}
 	return out, nil
-}
-
-func workspaceChoices(cfg *config.Config) []oauth.WorkspaceChoice {
-	out := make([]oauth.WorkspaceChoice, 0, len(cfg.Workspaces))
-	for _, w := range cfg.Workspaces {
-		perm, err := ws.ParsePermission(string(w.MaxPerm))
-		if err != nil {
-			perm = ws.PermRead
-		}
-		out = append(out, oauth.WorkspaceChoice{
-			Name: w.Name, Path: w.Path, MaxPerm: perm, Checks: w.Checks,
-		})
-	}
-	return out
 }
 
 func loadConfigAndDataDir(configFlag string) (*config.Config, string, error) {
@@ -909,7 +1090,11 @@ func formatGrantWorkspaces(workspaces map[string]ws.Permission) string {
 	sort.Strings(names)
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
-		parts = append(parts, fmt.Sprintf("%s:%s", name, workspaces[name]))
+		label := name
+		if name == oauth.WildcardWorkspace {
+			label = "all(dynamic)"
+		}
+		parts = append(parts, fmt.Sprintf("%s:%s", label, workspaces[name]))
 	}
 	return strings.Join(parts, ", ")
 }

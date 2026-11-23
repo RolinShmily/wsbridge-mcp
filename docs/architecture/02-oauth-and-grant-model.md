@@ -46,11 +46,11 @@
    - `code_challenge_method` 必须为 `"S256"`，且 `code_challenge` 长度合法（43–128 字符 Base64URL）；
    - 若携带 `resource` 参数，其值必须严格等于 `public_url + "/mcp"`（否则返回 `invalid_target`）。
 3. 服务端生成一次性 CSRF Token（写入内存或签名 Cookie，绑定当前表单会话），渲染 `consent.html`。
-4. 用户在浏览器勾选工作区、权限级别、授权有效期，并提交本机管理员口令（`POST /oauth/authorize`）：
+4. 用户在浏览器确认连接权限级别（默认全开 `check`）、授权有效期（默认 30 天）并提交本机管理员口令（`POST /oauth/authorize`）：
    - 校验防暴力破解锁定状态：连续口令错误达 **5 次**，全局锁定授权提交 **5 分钟**（返回 HTTP 429 与剩余秒数）；
    - 校验 CSRF Token；
    - 使用 `argon2.IDKey` 对比口令哈希；
-   - 校验所选权限不超过配置文件中各工作区的 `max_perm`；
+   - 默认签发动态通配工作区授权（`workspaces: {"*": perm}`），使连接自动跟随本机当前活跃工作区（兼容历史显式指定工作区名的 Grant）；
    - 创建 `Grant` 持久化至 `bbolt`；将对应 `client_id` 标记为“已激活”（免受 24h 僵尸清理）；
    - 生成 **32 字节密码学随机授权码**（Base64URL 编码），存入**纯内存映射表**（不落盘），TTL = **60 秒**；
    - 返回 `302 Found` 重定向至 `redirect_uri?code=<CODE>&state=<STATE>&iss=<URL_ENCODED_ISSUER>`（遵循 RFC 9207）。
@@ -106,5 +106,7 @@
 
 - 高级别权限自动包含低级别权限（例如 `check` 包含 `write` 与 `read`；`write` 包含 `read`）。
 - 单次工具调用时的**有效权限（Effective Permission）**计算公式为：
-  $$	ext{EffectivePerm}(w) = \minig(	ext{Config.Workspace}[w].	ext{MaxPerm},\; 	ext{Grant.Workspaces}[w].	ext{Perm}ig)$$
-- 若目标工作区 $w$ 不在 `Grant.Workspaces` 中，或 $	ext{EffectivePerm}(w) < 	ext{Tool.RequiredPerm}$，则立即拒绝工具调用并返回清晰的权限不足提示（告知用户在授权时仅授予了只读权限，需重新授权以获取写权限）。
+  - 本地全局配置默认不设限制（等同 `check`）；如显式配置了更低的全局 `max_perm`、工作区 `max_perm` 或启动参数 `--max-perm`，则按两者最小值收敛：
+  `EffectivePerm(w) = min(LocalMaxPerm(w), GrantPerm)`
+- 当 Grant 包含通配键 `"*"` 时，自动作用于服务端当前活跃的所有工作区（随 `wsbridge serve [dir]` 或 `wsbridge use [dir]` 实时变化，无需重连 OAuth）；如需更改连接权限，断开连接重新授权即可。
+- 若当前无活跃工作区或 `EffectivePerm(w) < Tool.RequiredPerm`，则立即拒绝工具调用并返回清晰的权限或工作区提示。

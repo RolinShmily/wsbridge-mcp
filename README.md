@@ -6,10 +6,11 @@
 
 ## Key Features
 
-- **Single Static Binary**: Built with Go ≥ 1.25 (`CGO_ENABLED=0`), embedded `bbolt` storage, `Argon2id` passphrase hashing, and a zero-JS monochrome OAuth consent page.
-- **Built-in OAuth 2.1 + Grant Model**: Supports PRM (`RFC 9728`), AS metadata (`RFC 8414`), DCR (`RFC 7591`), PKCE `S256`, refresh token rotation (30s grace window), and replay revocation. Every token is scoped to explicit workspaces, permissions (`read` / `write` / `check`), and TTL.
+- **Single Static Binary**: Built with Go ≥ 1.25 (`CGO_ENABLED=0`), embedded `bbolt` storage, `Argon2id` passphrase hashing, and a streamlined zero-JS OAuth consent page.
+- **Dynamic Workspace Switching**: `wsbridge serve` exposes the current working directory by default, and `wsbridge use [dir]` hot-switches the active workspace of a running daemon without dropping your tunnel or re-authorizing OAuth clients.
+- **Built-in OAuth 2.1 + Connection-Scoped Permissions**: Supports PRM (`RFC 9728`), AS metadata (`RFC 8414`), DCR (`RFC 7591`), PKCE `S256`, refresh token rotation (30s grace window), and replay revocation. Permissions (`check` full access by default, `write`, or `read`) are controlled directly in the browser consent page; disconnect and reconnect anytime to change them.
 - **`os.Root` Kernel Sandbox**: Uses Go `os.OpenRoot` to block path traversal and symlink escapes, guards against Windows reserved device names and ADS, and denies sensitive paths (`.git`, `.ssh`, `.env`, private keys).
-- **Pre-Write Snapshots & Fixed Checks**: Captures an external snapshot before every write, requires `expected_sha256` on overwrites, and limits `run_check` to a fixed compile-time allowlist (`git_status`, `git_diff`, `go_vet`, `go_test`, `npm_lint`, `npm_test`).
+- **Pre-Write Snapshots & Built-in Project Checks**: Captures an external snapshot before every write, requires `expected_sha256` on overwrites, and enables a fixed compile-time suite of project checks by default (`git_status`, `git_diff`, `git_log`, `go_vet`, `go_test`, `go_build`, `npm_lint`, `npm_test`, `npm_build`, `pytest`, `ruff_check`, `mypy`, `uv_pytest`, `uv_ruff`, `uv_mypy`, `uv_lock_check`, `uv_pip_list`, `uv_pip_check`, `pip_list`, `pip_check`, `cargo_check`, `cargo_test`).
 - **Managed Tunneling**: Supervises `cloudflared` (`[tunnel]`, automatically stopped when `wsbridge` exits) as the primary option, with `tailscale funnel` as a secondary option.
 
 ## Quickstart
@@ -22,32 +23,40 @@ CGO_ENABLED=0 go build -o wsbridge ./cmd/wsbridge
 
 ### 2. Interactive Setup
 
-Run `init` in an interactive terminal to configure your workspaces, permissions, tunnel (`cloudflared` or `tailscale funnel`), `public_url`, and administrator passphrase:
+Run `init` once to configure your tunnel (`cloudflared` or `tailscale funnel`), `public_url`, and administrator passphrase (no workspace locking required):
 
 ```bash
-./wsbridge init
+wsbridge init
 ```
 
 For non-interactive / scripted setup:
 
 ```bash
-./wsbridge init --non-interactive
-./wsbridge passwd
+wsbridge init --non-interactive
+wsbridge passwd
 ```
 
-### 3. Start & Diagnose
+### 3. Start, Switch Projects & Diagnose
 
 ```bash
-./wsbridge serve
-# In another terminal, verify local config, managed tunnel, and public discovery:
-./wsbridge doctor --timeout 10s
+# Start serving the current project directory:
+cd /path/to/project-a
+wsbridge serve
+
+# In another terminal, hot-switch the active workspace anytime without reconnecting:
+cd /path/to/project-b
+wsbridge use
+
+# Verify local config, managed tunnel, and public discovery:
+wsbridge doctor --timeout 10s
 ```
 
 Optional user-level background service (`systemd` / `launchd` / Windows Service):
 
 ```bash
-./wsbridge service install
-./wsbridge service start
+wsbridge service install
+wsbridge service start
+# Then run `wsbridge use` from any project directory to switch what remote clients see.
 ```
 
 ### 4. Connect AI Platforms

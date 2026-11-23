@@ -35,8 +35,15 @@ type Config struct {
 	Logger *slog.Logger
 	// AllowRedirectHosts extends the built-in redirect host allowlist.
 	AllowRedirectHosts []string
-	// Workspaces are the locally configured workspaces the user may grant.
+	// Workspaces are the static workspaces displayed on the consent page when
+	// WorkspacesProvider is nil.
 	Workspaces []WorkspaceChoice
+	// WorkspacesProvider dynamically returns the currently active workspace(s)
+	// for display on the consent page (used with hot-switching via "wsbridge use").
+	WorkspacesProvider func() []WorkspaceChoice
+	// LocalMaxPerm is the optional local server permission ceiling shown as a
+	// hint on the consent page. Defaults to ws.PermCheck (full access).
+	LocalMaxPerm ws.Permission
 	// Now overrides the clock in tests.
 	Now func() time.Time
 	// Argon2 is used by "wsbridge passwd"; verification reads parameters from
@@ -47,15 +54,17 @@ type Config struct {
 // Server serves OAuth discovery, registration, authorization, token, and
 // revocation endpoints.
 type Server struct {
-	issuer      string
-	resourceURL string
-	store       *Store
-	audit       *audit.Logger
-	logger      *slog.Logger
-	now         func() time.Time
-	argon2      Argon2Params
-	redirects   map[string]bool
-	workspaces  []WorkspaceChoice
+	issuer             string
+	resourceURL        string
+	store              *Store
+	audit              *audit.Logger
+	logger             *slog.Logger
+	now                func() time.Time
+	argon2             Argon2Params
+	redirects          map[string]bool
+	workspaces         []WorkspaceChoice
+	workspacesProvider func() []WorkspaceChoice
+	localMaxPerm       ws.Permission
 
 	codes    *codeStore
 	requests *authRequestStore
@@ -99,22 +108,35 @@ func New(cfg Config) (*Server, error) {
 	if argon == (Argon2Params{}) {
 		argon = DefaultArgon2Params
 	}
+	localMaxPerm := cfg.LocalMaxPerm
+	if localMaxPerm == ws.PermNone {
+		localMaxPerm = ws.PermCheck
+	}
 	return &Server{
-		issuer:      issuer,
-		resourceURL: issuer + "/mcp",
-		store:       cfg.Store,
-		audit:       cfg.Audit,
-		logger:      logger,
-		now:         now,
-		argon2:      argon,
-		redirects:   RedirectHostAllowlist(cfg.AllowRedirectHosts),
-		workspaces:  append([]WorkspaceChoice(nil), cfg.Workspaces...),
-		codes:       newCodeStore(now),
-		requests:    newAuthRequestStore(now),
-		lockout:     newLockout(now),
-		consent:     consent,
-		error:       errorTmpl,
+		issuer:             issuer,
+		resourceURL:        issuer + "/mcp",
+		store:              cfg.Store,
+		audit:              cfg.Audit,
+		logger:             logger,
+		now:                now,
+		argon2:             argon,
+		redirects:          RedirectHostAllowlist(cfg.AllowRedirectHosts),
+		workspaces:         append([]WorkspaceChoice(nil), cfg.Workspaces...),
+		workspacesProvider: cfg.WorkspacesProvider,
+		localMaxPerm:       localMaxPerm,
+		codes:              newCodeStore(now),
+		requests:           newAuthRequestStore(now),
+		lockout:            newLockout(now),
+		consent:            consent,
+		error:              errorTmpl,
 	}, nil
+}
+
+func (s *Server) currentWorkspaces() []WorkspaceChoice {
+	if s.workspacesProvider != nil {
+		return s.workspacesProvider()
+	}
+	return s.workspaces
 }
 
 // Issuer returns the configured issuer.

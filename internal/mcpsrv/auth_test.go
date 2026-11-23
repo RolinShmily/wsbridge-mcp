@@ -325,3 +325,93 @@ func TestToolsListWithBearer(t *testing.T) {
 		t.Errorf("tools = %d, want 7", len(envelope.Result.Tools))
 	}
 }
+
+func TestWildcardGrantFollowsHotSwitchAndRespectsLocalCap(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirA, "a.txt"), []byte("from-a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "b.txt"), []byte("from-b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := ws.NewManager([]ws.WorkspaceConfig{
+		{Name: "proj-a", Path: dirA, MaxPerm: ws.PermCheck},
+	}, ws.ManagerOptions{DataDir: t.TempDir(), RipgrepPath: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	principals := map[string]*oauth.GrantPrincipal{
+		"dyn": {
+			GrantID:    "wsb_grt_dyn",
+			ClientID:   "wsb_cli_test",
+			Scopes:     []string{"mcp:tools"},
+			Workspaces: map[string]ws.Permission{oauth.WildcardWorkspace: ws.PermCheck},
+			ExpiresAt:  time.Now().Add(time.Hour),
+		},
+	}
+	srv, err := mcpsrv.New(mcpsrv.Options{
+		Manager: mgr,
+		Version: "test",
+		Scope:   mcpsrv.GrantScope(mgr),
+		Auth: &mcpsrv.AuthConfig{
+			Verifier:            fakeVerifier{principals: principals},
+			ResourceURL:         testResource,
+			ResourceMetadataURL: "https://bridge.example.com/.well-known/oauth-protected-resource/mcp",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	client := server.Client()
+
+	callRaw := func(body string) string {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/mcp", bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Authorization", "Bearer dyn")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d: %s", resp.StatusCode, raw)
+		}
+		return string(raw)
+	}
+
+	gotA := callRaw(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}`)
+	if !strings.Contains(gotA, "name: proj-a") || !strings.Contains(gotA, "effective_perm: check") {
+		t.Fatalf("before switch = %s", gotA)
+	}
+
+	// Hot-switch active workspace to proj-b with a tighter local cap (read).
+	if _, err := mgr.SetActive(ws.WorkspaceConfig{Name: "proj-b", Path: dirB, MaxPerm: ws.PermRead}); err != nil {
+		t.Fatalf("SetActive: %v", err)
+	}
+
+	gotB := callRaw(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_workspaces","arguments":{}}}`)
+	if !strings.Contains(gotB, "name: proj-b") || !strings.Contains(gotB, "effective_perm: read") {
+		t.Fatalf("after switch = %s", gotB)
+	}
+	// Reading b.txt works with the same token; writing is clamped by local cap.
+	readB := callRaw(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"b.txt"}}}`)
+	if !strings.Contains(readB, "from-b") {
+		t.Fatalf("read_file after switch = %s", readB)
+	}
+	writeB := callRaw(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"c.txt","content":"nope"}}}`)
+	if !strings.Contains(writeB, "write permission") {
+		t.Fatalf("write_file under read cap = %s", writeB)
+	}
+}

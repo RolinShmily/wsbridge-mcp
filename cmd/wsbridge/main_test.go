@@ -44,7 +44,7 @@ func TestRunNoCommandShowsUsage(t *testing.T) {
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
 	}
-	for _, sub := range []string{"serve", "init", "passwd", "grants", "doctor", "service"} {
+	for _, sub := range []string{"serve", "use", "init", "passwd", "grants", "doctor", "service"} {
 		if !strings.Contains(stderr, sub) {
 			t.Errorf("usage missing %q: %s", sub, stderr)
 		}
@@ -876,18 +876,9 @@ checks = ["git_status"]
 
 func TestRunInitInteractive(t *testing.T) {
 	tmp := t.TempDir()
-	wsDir := filepath.Join(tmp, "proj")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	cfgPath := filepath.Join(tmp, "cfg", "config.toml")
 
 	input := strings.Join([]string{
-		"proj",                    // workspace name
-		wsDir,                     // workspace path
-		"write",                   // max_perm
-		"git_status,git_diff",     // checks
-		"n",                       // add another workspace?
 		"1",                       // tunnel: 1 = cloudflared
 		"https://mcp.example.com", // public_url
 		"127.0.0.1:8787",          // listen
@@ -920,8 +911,11 @@ func TestRunInitInteractive(t *testing.T) {
 	if cfg.Tunnel.Provider != "cloudflared" || cfg.Tunnel.TokenFile != filepath.Join(filepath.Dir(cfgPath), "cloudflared-token") {
 		t.Errorf("Tunnel = %+v", cfg.Tunnel)
 	}
-	if len(cfg.Workspaces) != 1 || cfg.Workspaces[0].Name != "proj" || cfg.Workspaces[0].MaxPerm != config.PermWrite {
-		t.Errorf("Workspaces = %+v", cfg.Workspaces)
+	if len(cfg.Workspaces) != 0 {
+		t.Errorf("Workspaces = %+v, want empty (dynamic CWD mode)", cfg.Workspaces)
+	}
+	if cfg.EffectiveMaxPerm() != config.PermCheck {
+		t.Errorf("EffectiveMaxPerm = %q, want check", cfg.EffectiveMaxPerm())
 	}
 	if !strings.Contains(stdout.String(), "https://mcp.example.com/mcp") {
 		t.Errorf("stdout missing MCP endpoint URL:\n%s", stdout.String())
@@ -944,18 +938,9 @@ func TestRunInitInteractive(t *testing.T) {
 
 func TestRunInitInteractiveSavesPastedTunnelToken(t *testing.T) {
 	tmp := t.TempDir()
-	wsDir := filepath.Join(tmp, "proj")
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	cfgPath := filepath.Join(tmp, "cfg", "config.toml")
 
 	input := strings.Join([]string{
-		"proj",
-		wsDir,
-		"read",
-		"",
-		"n",
 		"1",
 		"https://mcp.example.com",
 		"127.0.0.1:8787",
@@ -978,5 +963,223 @@ func TestRunInitInteractiveSavesPastedTunnelToken(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "pasted-cf-token-123") {
 		t.Fatal("tunnel token leaked to stdout")
+	}
+}
+
+func TestServeDynamicWorkspaceAndLiveUseSwitch(t *testing.T) {
+	dir := t.TempDir()
+	projA := filepath.Join(t.TempDir(), "proj-a")
+	projB := filepath.Join(t.TempDir(), "proj-b")
+	if err := os.MkdirAll(projA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projA, "info.txt"), []byte("project A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projB, "info.txt"), []byte("project B\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := freeLoopbackPort(t)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	publicURL := "http://" + addr
+	cfgPath := filepath.Join(dir, "config.toml")
+	// Notice: NO [[workspace]] blocks and NO max_perm in config.toml.
+	content := `
+public_url = "` + publicURL + `"
+listen = "` + addr + `"
+data_dir = "` + escapeTOMLPath(dir) + `"
+`
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Offline "wsbridge use" saves active workspace before serve starts.
+	useCode, useOut, useErr := runCLI(t, "--config", cfgPath, "use", projA)
+	if useCode != 0 {
+		t.Fatalf("offline use exit = %d, stderr = %s", useCode, useErr)
+	}
+	if !strings.Contains(useOut, "proj-a") || !strings.Contains(useOut, "not running") {
+		t.Fatalf("offline use stdout = %q", useOut)
+	}
+
+	store, err := oauth.OpenStore(filepath.Join(dir, "wsbridge.db"), oauth.StoreOptions{Issuer: publicURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := oauth.HashAdminPassphrase(cliE2EPassphrase, oauth.Argon2Params{
+		Memory: 8 * 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAdminHash(hash); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stderr := &syncBuffer{}
+	done := make(chan int, 1)
+	go func() {
+		done <- runServeContext(ctx, cfgPath, []string{"--allow-http-public-url", projA}, io.Discard, stderr)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatalf("serve did not start: %s", stderr.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	redirectURI := "http://127.0.0.1:19999/callback"
+	regResp, err := noRedirect.Post(publicURL+"/oauth/register", "application/json",
+		strings.NewReader(`{"client_name":"Dynamic E2E","redirect_uris":["`+redirectURI+`"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg struct {
+		ClientID string `json:"client_id"`
+	}
+	_ = json.NewDecoder(regResp.Body).Decode(&reg)
+	regResp.Body.Close()
+
+	random := make([]byte, 32)
+	_, _ = rand.Read(random)
+	verifier := base64.RawURLEncoding.EncodeToString(random)
+	sum := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	q := url.Values{
+		"response_type": {"code"}, "client_id": {reg.ClientID},
+		"redirect_uri": {redirectURI}, "code_challenge": {challenge},
+		"code_challenge_method": {"S256"}, "state": {"dyn"},
+		"scope": {"mcp:tools offline_access"}, "resource": {publicURL + "/mcp"},
+	}
+	getResp, err := noRedirect.Get(publicURL + "/oauth/authorize?" + q.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(getResp.Body)
+	getResp.Body.Close()
+	authReq := regexp.MustCompile(`name="auth_req_id" value="([^"]+)"`).FindSubmatch(raw)
+	csrf := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindSubmatch(raw)
+
+	// Simplified consent submit: NO "workspaces" param!
+	postResp, err := noRedirect.PostForm(publicURL+"/oauth/authorize", url.Values{
+		"auth_req_id": {string(authReq[1])}, "csrf_token": {string(csrf[1])},
+		"action": {"approve"}, "permission": {"check"}, "ttl_hours": {"720"},
+		"passphrase": {cliE2EPassphrase},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postResp.Body.Close()
+	loc, _ := url.Parse(postResp.Header.Get("Location"))
+	code := loc.Query().Get("code")
+
+	tokResp, err := noRedirect.PostForm(publicURL+"/oauth/token", url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {redirectURI},
+		"client_id": {reg.ClientID}, "code_verifier": {verifier}, "resource": {publicURL + "/mcp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokens struct {
+		AccessToken string `json:"access_token"`
+	}
+	_ = json.NewDecoder(tokResp.Body).Decode(&tokens)
+	tokResp.Body.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "dyn-client", Version: "1"}, nil)
+	cs, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+		Endpoint:             publicURL + "/mcp",
+		HTTPClient:           &http.Client{Transport: &cliBearerTransport{base: http.DefaultTransport, token: tokens.AccessToken}},
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("MCP connect: %v", err)
+	}
+	defer cs.Close()
+
+	// Verify initial active workspace is proj-a.
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "read_file", Arguments: map[string]any{"path": "info.txt"},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("read proj-a: %v %+v", err, res)
+	}
+	if !strings.Contains(res.Content[0].(*mcp.TextContent).Text, "project A") {
+		t.Fatalf("proj-a content = %q", res.Content[0].(*mcp.TextContent).Text)
+	}
+
+	// Live hot-switch via "wsbridge use <projB>" while serve stays running!
+	switchCode, switchOut, switchErr := runCLI(t, "--config", cfgPath, "use", projB)
+	if switchCode != 0 {
+		t.Fatalf("live use exit = %d, stderr = %s", switchCode, switchErr)
+	}
+	if !strings.Contains(switchOut, "Switched active workspace to proj-b") {
+		t.Fatalf("live use stdout = %q", switchOut)
+	}
+
+	// "wsbridge use --show" reports live proj-b.
+	showCode, showOut, showErr := runCLI(t, "--config", cfgPath, "use", "--show")
+	if showCode != 0 || !strings.Contains(showOut, "proj-b") || !strings.Contains(showOut, "live") {
+		t.Fatalf("use --show = (%d, %q, %q)", showCode, showOut, showErr)
+	}
+
+	// Same MCP session & OAuth token now seamlessly reads proj-b!
+	res, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "list_workspaces", Arguments: map[string]any{},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("list_workspaces after switch: %v %+v", err, res)
+	}
+	if text := res.Content[0].(*mcp.TextContent).Text; !strings.Contains(text, "name: proj-b") || !strings.Contains(text, "uv_pytest") {
+		t.Fatalf("list_workspaces after switch = %q", text)
+	}
+
+	res, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "read_file", Arguments: map[string]any{"path": "info.txt"},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("read proj-b: %v %+v", err, res)
+	}
+	if !strings.Contains(res.Content[0].(*mcp.TextContent).Text, "project B") {
+		t.Fatalf("proj-b content = %q", res.Content[0].(*mcp.TextContent).Text)
+	}
+
+	// Stale explicit workspace name "proj-a" fails clearly instead of mis-editing proj-b.
+	res, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "read_file", Arguments: map[string]any{"workspace": "proj-a", "path": "info.txt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || !strings.Contains(res.Content[0].(*mcp.TextContent).Text, "proj-b") {
+		t.Fatalf("stale workspace call should error and mention proj-b: %+v", res)
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("serve exit code = %d, stderr = %s", code, stderr.String())
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("serve did not shut down")
 	}
 }

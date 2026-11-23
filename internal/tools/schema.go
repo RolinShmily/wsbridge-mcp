@@ -101,7 +101,7 @@ const runCheckSchema = `{
   "type": "object",
   "properties": {
     "workspace": { "type": "string", "description": "Workspace name (optional if only one workspace is authorized)." },
-    "name": { "type": "string", "minLength": 1, "description": "Check identifier configured on the server (e.g., git_status, git_diff, go_vet)." }
+    "name": { "type": "string", "minLength": 1, "description": "Built-in check identifier (e.g., git_status, git_diff, go_test, npm_test, pytest, uv_pytest, uv_ruff, uv_pip_list, pip_list, cargo_test). Call list_workspaces for the full list." }
   },
   "required": ["name"],
   "additionalProperties": false

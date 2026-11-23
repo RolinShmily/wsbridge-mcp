@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const (
@@ -33,6 +34,7 @@ var (
 	ErrMixedNewlines      = errors.New("file has mixed line endings")
 	ErrUnknownCheck       = errors.New("unknown check")
 	ErrCheckNotAllowed    = errors.New("check is not allowed for this workspace")
+	ErrWorkspaceClosed    = errors.New("workspace is no longer active")
 )
 
 // WorkspaceConfig describes one workspace supplied by the configuration layer.
@@ -53,10 +55,17 @@ type ManagerOptions struct {
 	RipgrepPath string
 }
 
-// Manager owns one *os.Root per configured workspace.
+// Manager owns one *os.Root per active workspace and supports concurrency-safe
+// hot-switching of the active workspace.
 type Manager struct {
-	workspaces map[string]*Workspace
-	order      []string
+	mu           sync.RWMutex
+	workspaces   map[string]*Workspace
+	order        []string
+	dataDir      string
+	maxSnapshots int
+	denyPatterns []string
+	ripgrepPath  string
+	closing      sync.WaitGroup
 }
 
 // Workspace provides sandboxed file operations within a single directory.
@@ -65,7 +74,9 @@ type Workspace struct {
 	hostPath     string
 	maxPerm      Permission
 	checks       []string
+	rootMu       sync.RWMutex
 	root         *os.Root
+	closed       bool
 	denyPatterns []string
 	dataDir      string
 	maxSnapshots int
@@ -74,7 +85,42 @@ type Workspace struct {
 
 var workspaceNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// NewManager opens every configured workspace root.
+// DeriveWorkspaceName converts a directory path's basename into a valid
+// workspace name matching [A-Za-z0-9._-]+, falling back to "workspace".
+func DeriveWorkspaceName(dir string) string {
+	trimmed := strings.TrimSpace(dir)
+	if trimmed == "" {
+		return "workspace"
+	}
+	base := filepath.Base(filepath.Clean(trimmed))
+	if base == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return "workspace"
+	}
+	var b strings.Builder
+	prevDash := false
+	for _, r := range base {
+		valid := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if valid {
+			if r == '-' && prevDash {
+				continue
+			}
+			b.WriteRune(r)
+			prevDash = r == '-'
+		} else if b.Len() > 0 && !prevDash {
+			b.WriteByte('-')
+			prevDash = true
+		}
+	}
+	name := strings.Trim(b.String(), ".-")
+	if name == "" || name == "." || name == ".." || !workspaceNameRE.MatchString(name) {
+		return "workspace"
+	}
+	return name
+}
+
+// NewManager opens every configured workspace root. An empty configs slice is
+// valid when starting in dynamic mode before an active workspace is selected.
 func NewManager(configs []WorkspaceConfig, opts ManagerOptions) (*Manager, error) {
 	if opts.DataDir == "" {
 		return nil, fmt.Errorf("ws: data directory is required")
@@ -103,65 +149,115 @@ func NewManager(configs []WorkspaceConfig, opts ManagerOptions) (*Manager, error
 		}
 	}
 
-	m := &Manager{workspaces: make(map[string]*Workspace, len(configs))}
+	m := &Manager{
+		workspaces:   make(map[string]*Workspace, len(configs)),
+		dataDir:      dataDir,
+		maxSnapshots: opts.MaxSnapshotsPerGrant,
+		denyPatterns: denyPatterns,
+		ripgrepPath:  ripgrepPath,
+	}
 	closeOpened := func() {
 		for _, name := range m.order {
-			_ = m.workspaces[name].root.Close()
+			_ = m.workspaces[name].closeRoot()
 		}
 	}
 	for _, cfg := range configs {
-		if cfg.Name == "" || cfg.Name == "." || cfg.Name == ".." || !workspaceNameRE.MatchString(cfg.Name) {
-			closeOpened()
-			return nil, fmt.Errorf("ws: invalid workspace name %q", cfg.Name)
-		}
-		if _, exists := m.workspaces[cfg.Name]; exists {
-			closeOpened()
-			return nil, fmt.Errorf("ws: duplicate workspace name %q", cfg.Name)
-		}
-		if cfg.MaxPerm < PermRead || cfg.MaxPerm > PermCheck {
-			closeOpened()
-			return nil, fmt.Errorf("ws: workspace %q has invalid permission %d", cfg.Name, cfg.MaxPerm)
-		}
-		for _, check := range cfg.Checks {
-			if _, ok := builtinChecks[check]; !ok {
-				closeOpened()
-				return nil, fmt.Errorf("ws: workspace %q: unknown check %q", cfg.Name, check)
-			}
-		}
-		root, err := os.OpenRoot(cfg.Path)
+		w, err := m.openWorkspace(cfg)
 		if err != nil {
 			closeOpened()
-			return nil, fmt.Errorf("ws: open workspace %q at %q: %w", cfg.Name, cfg.Path, err)
+			return nil, err
 		}
-		m.workspaces[cfg.Name] = &Workspace{
-			name:         cfg.Name,
-			hostPath:     cfg.Path,
-			maxPerm:      cfg.MaxPerm,
-			checks:       append([]string(nil), cfg.Checks...),
-			root:         root,
-			denyPatterns: denyPatterns,
-			dataDir:      dataDir,
-			maxSnapshots: opts.MaxSnapshotsPerGrant,
-			ripgrepPath:  ripgrepPath,
+		if _, exists := m.workspaces[w.name]; exists {
+			_ = w.closeRoot()
+			closeOpened()
+			return nil, fmt.Errorf("ws: duplicate workspace name %q", w.name)
 		}
-		m.order = append(m.order, cfg.Name)
+		m.workspaces[w.name] = w
+		m.order = append(m.order, w.name)
 	}
 	return m, nil
 }
 
+func (m *Manager) openWorkspace(cfg WorkspaceConfig) (*Workspace, error) {
+	if cfg.Name == "" || cfg.Name == "." || cfg.Name == ".." || !workspaceNameRE.MatchString(cfg.Name) {
+		return nil, fmt.Errorf("ws: invalid workspace name %q", cfg.Name)
+	}
+	if cfg.MaxPerm < PermRead || cfg.MaxPerm > PermCheck {
+		return nil, fmt.Errorf("ws: workspace %q has invalid permission %d", cfg.Name, cfg.MaxPerm)
+	}
+	for _, check := range cfg.Checks {
+		if _, ok := builtinChecks[check]; !ok {
+			return nil, fmt.Errorf("ws: workspace %q: unknown check %q", cfg.Name, check)
+		}
+	}
+	absPath, err := filepath.Abs(cfg.Path)
+	if err != nil {
+		return nil, fmt.Errorf("ws: resolve workspace %q path %q: %w", cfg.Name, cfg.Path, err)
+	}
+	root, err := os.OpenRoot(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("ws: open workspace %q at %q: %w", cfg.Name, absPath, err)
+	}
+	return &Workspace{
+		name:         cfg.Name,
+		hostPath:     absPath,
+		maxPerm:      cfg.MaxPerm,
+		checks:       append([]string(nil), cfg.Checks...),
+		root:         root,
+		denyPatterns: m.denyPatterns,
+		dataDir:      m.dataDir,
+		maxSnapshots: m.maxSnapshots,
+		ripgrepPath:  m.ripgrepPath,
+	}, nil
+}
+
+// SetActive atomically replaces the manager's active workspace with cfg.
+// If opening cfg fails, the previously active workspace(s) remain untouched.
+func (m *Manager) SetActive(cfg WorkspaceConfig) (*Workspace, error) {
+	w, err := m.openWorkspace(cfg)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	old := make([]*Workspace, 0, len(m.order))
+	for _, name := range m.order {
+		old = append(old, m.workspaces[name])
+	}
+	m.workspaces = map[string]*Workspace{w.name: w}
+	m.order = []string{w.name}
+	m.mu.Unlock()
+
+	if len(old) > 0 {
+		m.closing.Add(1)
+		go func() {
+			defer m.closing.Done()
+			for _, prev := range old {
+				_ = prev.closeRoot()
+			}
+		}()
+	}
+	return w, nil
+}
+
 // Get returns a workspace by name.
 func (m *Manager) Get(name string) (*Workspace, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	w, ok := m.workspaces[name]
 	return w, ok
 }
 
 // Names returns workspace names in configuration order.
 func (m *Manager) Names() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return append([]string(nil), m.order...)
 }
 
 // Workspaces returns all workspaces in configuration order.
 func (m *Manager) Workspaces() []*Workspace {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	out := make([]*Workspace, 0, len(m.order))
 	for _, name := range m.order {
 		out = append(out, m.workspaces[name])
@@ -169,25 +265,56 @@ func (m *Manager) Workspaces() []*Workspace {
 	return out
 }
 
-// Close closes all workspace roots.
+// Close closes all active workspace roots and waits for any deferred closures
+// from prior hot-switches to complete.
 func (m *Manager) Close() error {
-	var errs []error
+	m.mu.Lock()
+	active := make([]*Workspace, 0, len(m.order))
 	for _, name := range m.order {
-		if err := m.workspaces[name].root.Close(); err != nil {
+		active = append(active, m.workspaces[name])
+	}
+	m.workspaces = nil
+	m.order = nil
+	m.mu.Unlock()
+
+	var errs []error
+	for _, w := range active {
+		if err := w.closeRoot(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+	m.closing.Wait()
 	return errors.Join(errs...)
+}
+
+func (w *Workspace) closeRoot() error {
+	w.rootMu.Lock()
+	defer w.rootMu.Unlock()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	if w.root == nil {
+		return nil
+	}
+	return w.root.Close()
 }
 
 // Name returns the configured workspace name.
 func (w *Workspace) Name() string { return w.name }
 
+// HostPath returns the absolute host directory path for this workspace.
+func (w *Workspace) HostPath() string { return w.hostPath }
+
 // MaxPerm returns the configured maximum permission.
 func (w *Workspace) MaxPerm() Permission { return w.maxPerm }
 
-// AllowedChecks returns a copy of the configured check whitelist.
+// AllowedChecks returns the check identifiers permitted for this workspace.
+// When no explicit subset was configured, all built-in checks are returned.
 func (w *Workspace) AllowedChecks() []string {
+	if len(w.checks) == 0 {
+		return BuiltinCheckNames()
+	}
 	return append([]string(nil), w.checks...)
 }
 
@@ -241,6 +368,11 @@ func (w *Workspace) ensureNoSymlinkPrefix(rel string) error {
 
 // StatFile returns lstat information for a sandboxed relative path.
 func (w *Workspace) StatFile(relPath string) (fs.FileInfo, error) {
+	w.rootMu.RLock()
+	defer w.rootMu.RUnlock()
+	if w.closed {
+		return nil, ErrWorkspaceClosed
+	}
 	rel, err := w.clean(relPath)
 	if err != nil {
 		return nil, err
@@ -250,6 +382,11 @@ func (w *Workspace) StatFile(relPath string) (fs.FileInfo, error) {
 
 // ReadFile reads a regular file (maximum 2 MiB) and returns its SHA-256 hex.
 func (w *Workspace) ReadFile(relPath string) ([]byte, string, error) {
+	w.rootMu.RLock()
+	defer w.rootMu.RUnlock()
+	if w.closed {
+		return nil, "", ErrWorkspaceClosed
+	}
 	rel, err := w.clean(relPath)
 	if err != nil {
 		return nil, "", err

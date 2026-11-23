@@ -16,9 +16,9 @@ import (
 )
 
 // DefaultInstructions are advertised to MCP clients during initialization.
-const DefaultInstructions = "wsbridge exposes sandboxed tools for the local workspaces authorized for this session. " +
-	"All paths are relative to the selected workspace. Sensitive files are blocked, and writes require the " +
-	"current SHA-256 when replacing an existing file."
+const DefaultInstructions = "wsbridge exposes sandboxed tools for the active local workspace on the host. " +
+	"The active workspace can switch dynamically when the user changes directories locally; call list_workspaces to confirm the current workspace name and available checks. " +
+	"All paths are relative to the selected workspace. Sensitive files are blocked, and writes require the current SHA-256 when replacing an existing file."
 
 // Options configures the MCP server.
 type Options struct {
