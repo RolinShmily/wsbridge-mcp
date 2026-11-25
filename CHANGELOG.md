@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.3] - 2026-11-25
+
+### Changed
+
+- Adopted a full Go module path (`github.com/RolinShmily/wsbridge-mcp`), so the project is
+  installable via `go install github.com/RolinShmily/wsbridge-mcp/cmd/wsbridge@latest` and
+  indexable on pkg.go.dev.
+- Consolidated `docs/` into four self-contained single-file specs (`architecture.md`,
+  `development.md`, `reference.md`, `design.md`), replacing the 14-file subdirectory tree.
+- Moved the end-to-end test client from `e2e/` to `tests/e2e`, the Go-idiomatic home for an
+  external integration test package.
+- Rewrote `CONTRIBUTING.md` around the frozen dependency allowlist, sandbox-first testing, and
+  the tagged release flow.
+
+### Removed
+
+- The `skills/wsbridge-setup/` skill.
+- GitHub issue report/feature templates and the pull request template, per the project's new
+  minimal maintenance surface.
+
 ## [v0.1.2] - 2026-11-23
 
 ### Added
