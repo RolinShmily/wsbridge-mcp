@@ -6,22 +6,12 @@
 `wsbridge` 是一个面向单用户的本地工作区安全桥接服务，以**单个静态 Go（≥1.25）二进制文件（`CGO_ENABLED=0`）**运行在 Windows / macOS / Linux 上。它通过内置的 OAuth 2.1 授权服务与 Streamable HTTP MCP 端点，使 **ChatGPT → Gemini → Claude** 网页端与客户端在最小权限（Grant）约束下安全读写与检查本机指定工作区。
 
 ## 2. 文档导航（必读顺序）
-在编写任何业务代码前，请按以下顺序通读对应规格：
+在编写任何业务代码前，请按以下顺序通读 `docs/` 下的 4 份单文件规格（`docs/README.md` 索引已废除，`docs/` 不再有子目录）：
 
-1. **总索引与里程碑**：`docs/README.md` 与 `docs/development/04-milestones-and-tasks.md`
-2. **开发红线与模块边界**：`docs/development/01-coding-standards.md` 与 `docs/development/02-repository-and-modules.md`
-3. **系统与安全架构**：
-   - `docs/architecture/01-system-overview.md`
-   - `docs/architecture/02-oauth-and-grant-model.md`
-   - `docs/architecture/03-mcp-and-workspace-sandbox.md`
-   - `docs/architecture/04-deployment-and-security.md`
-4. **协议、工具与配置接口契约**：
-   - `docs/reference/01-oauth-endpoints-spec.md`
-   - `docs/reference/02-mcp-tools-schema.md`
-   - `docs/reference/03-cli-and-config-spec.md`
-   - `docs/reference/04-platform-quirks-matrix.md`
-5. **授权同意页前端规范**：`docs/design/01-oauth-consent-ui.md`
-6. **测试与验证规范**：`docs/development/03-testing-and-ci.md`
+1. **总览与系统架构**：`docs/architecture.md`
+2. **开发红线与仓库/模块契约**：`docs/development.md`
+3. **协议、工具、CLI 与配置接口契约**：`docs/reference.md`
+4. **授权同意页前端规范**：`docs/design.md`
 
 ## 3. 不可逾越的工程红线
 1. **Go 版本与静态编译**：`go.mod` 必须要求 Go ≥ 1.25（依赖 `os.Root.ReadFile` / `WriteFile` / `Rename`）。Go 工具链会把 `go 1.25` 规范化为补丁版本（如 `go 1.25.0`），这是允许且预期的；更高版本的 1.25.x 补丁同样可用。所有构建均需在 `CGO_ENABLED=0` 下通过。

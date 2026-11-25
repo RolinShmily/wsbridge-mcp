@@ -2,28 +2,37 @@
 
 [English](README.md) | **简体中文**
 
-`wsbridge` 是一个面向单用户的本地工作区安全桥接服务。它以**单个静态 Go 二进制**运行在 Windows / macOS / Linux 上，通过内置 OAuth 2.1 授权服务与 Streamable HTTP MCP 端点，让 **ChatGPT、Gemini、Claude** 在最小权限 Grant 约束下安全读取、修改与检查本机指定工作区。
+## 这是什么？
 
-## 核心特性
+`wsbridge` 是一座面向单用户的本地工作区安全桥接服务，供 **ChatGPT、Gemini、Claude** 使用。它以**单个静态 Go 二进制**（`CGO_ENABLED=0`）运行在 Windows / macOS / Linux 上，内置：
 
-- **单二进制零运行时依赖**：Go ≥ 1.25，`CGO_ENABLED=0` 静态编译，内置 `bbolt`、Argon2id、极简 OAuth 2.1 同意页与 MCP Server。
-- **动态工作区与热切换**：`wsbridge serve` 默认服务当前工作目录；任意项目目录下运行 `wsbridge use` 可实时热切换运行中的活跃工作区，隧道不断线、远端无需重新 OAuth 授权。
-- **内置 OAuth 2.1 + 连接级权限管理**：支持 PRM、AS 元数据、DCR、PKCE S256、Refresh Token 轮换（30s 宽限期）与重放吊销；权限（默认全开 `check`，可选 `write`/`read`）完全在浏览器同意页控制，变更权限只需断开重连。
-- **`os.Root` 内核级沙盒**：基于 Go `os.OpenRoot` 阻断路径穿越与符号链接逃逸，拦截 Windows 保留设备名与 ADS，默认屏蔽 `.git`、`.ssh`、`.env` 与私钥文件。
-- **写前快照与内置项目检查**：修改前自动保存外部快照，覆盖文件校验 `expected_sha256`；`run_check` 默认开放全套预编译项目检查（Git / Go / Node / Python `pytest`、`ruff`、`mypy`、`uv`、`pip` / Rust）。
-- **托管内网穿透**：首选内置托管 `cloudflared`（`[tunnel]`，`wsbridge` 退出时一并回收），次选 `tailscale funnel`。
+- **OAuth 2.1 授权服务** —— 让 AI 平台通过各自标准的自定义连接器流程（发现 → DCR → PKCE S256 → 同意页）完成对你的本机鉴权，无需任何外部 IdP；
+- **Streamable HTTP MCP 端点**（`<public_url>/mcp`）—— 暴露一组刻意收窄的工具（读 / 搜索 / 编辑 / 写入 / 运行内置项目检查），AI 模型只能安全地操作你当前的工作区；
+- **`os.Root` 内核级沙盒** —— 阻断路径穿越与符号链接逃逸，默认屏蔽 `.git`、`.ssh`、`.env`、私钥等敏感文件。
 
-## 快速上手
+控制权始终在你手上：工作区跟随你执行 `wsbridge serve` 的目录（并可随时用 `wsbridge use` 热切换），每条连接的最大权限在浏览器同意页选择，断开重连即可随时调整。**不暴露任何 Shell 执行与网络请求工具。**
 
-### 1. 构建（或从 Releases 下载）
+## 你需要准备什么？
+
+- **Go ≥ 1.25** 用于源码构建（或从 Releases 直接下载发布包）。
+- 一个**稳定的公网 HTTPS 地址** —— 平台云端必须能访问到你。推荐方案：
+  - **Tailscale Funnel**（首选）：`tailscale funnel --bg 8787`
+  - **Cloudflare Named Tunnel**：固定 `cloudflared` 二级域名
+  - **ngrok 静态域名**：`ngrok http --domain=<static-domain> 8787`
+
+  > 切勿使用随机临时域名（如 `*.trycloudflare.com`）：URL 变更会导致所有已连接的连接器全部失效。
+
+## 怎么用
+
+### 1. 构建
 
 ```bash
 CGO_ENABLED=0 go build -o wsbridge ./cmd/wsbridge
 ```
 
-### 2. 交互式初始化
+### 2. 初始化一次
 
-只需初始化一次，配置穿透方案（首选 `cloudflared`、次选 `tailscale funnel`）、`public_url` 与管理员口令（无需写死工作区和权限）：
+`wsbridge init` 负责配置穿透方案（首选 `cloudflared`、次选 `tailscale funnel`）、`public_url` 与管理员口令：
 
 ```bash
 wsbridge init
@@ -47,9 +56,6 @@ wsbridge serve
 cd /path/to/project-b
 wsbridge use
 
-# 查看当前活跃工作区：
-wsbridge use --show
-
 # 检查本地配置、托管隧道与公网连通性：
 wsbridge doctor --timeout 10s
 ```
@@ -72,21 +78,28 @@ wsbridge service start
 | **Gemini** | `gemini.google.com → Settings → Connected Apps → Add a custom app` | 需个人 Google 账号、界面语言 `English`、开启 Keep Activity |
 | **Claude** | `Settings → Connectors → Add custom connector` | `/mcp` 与 `/mcp/` 无 301 重定向 |
 
-## 常用命令
+### 常用命令
 
 ```bash
-wsbridge grants list                  # 查看当前 Grant
+wsbridge grants list                  # 查看当前 Grant 列表
 wsbridge grants revoke <grant_id>     # 立即吊销指定 Grant
 wsbridge grants revoke --all          # 吊销全部 Grant
 wsbridge grants prune                 # 清理过期 Grant 与陈旧客户端
 wsbridge serve --debug-oauth          # 脱敏输出 OAuth/MCP 调试日志
 ```
 
-## 文档与 Skill
+## 文档
 
-- 工程规格索引：[docs/README.md](docs/README.md)
-- 平台实测记录：[docs/reference/04-platform-quirks-matrix.md](docs/reference/04-platform-quirks-matrix.md)
-- Agent / AI 接入 SOP Skill：[skills/wsbridge-setup/SKILL.md](skills/wsbridge-setup/SKILL.md)
+`docs/` 目录共四份自包含规格：
+
+| 文件 | 内容 |
+| :--- | :--- |
+| **[architecture.md](docs/architecture.md)** | 系统总体架构、OAuth 2.1 与 Grant 模型、MCP/沙盒设计、部署与威胁模型 |
+| **[reference.md](docs/reference.md)** | OAuth 端点报文、MCP 工具 Schema、CLI 与 `config.toml`、各平台接入细节与实测记录 |
+| **[development.md](docs/development.md)** | 编码规范、仓库/模块契约、测试与 CI、M0–M7 里程碑 |
+| **[design.md](docs/design.md)** | OAuth 同意页 UI 与表单契约 |
+
+另见：[CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## 开源协议与作者
 
