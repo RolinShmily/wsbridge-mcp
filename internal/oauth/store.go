@@ -17,7 +17,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 // Protocol lifetimes and limits from docs/architecture/02-oauth-and-grant-model.md.

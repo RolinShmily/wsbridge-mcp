@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"wsbridge/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
 )
 
 func writeConfigFile(t *testing.T, content string) (path string, dir string) {

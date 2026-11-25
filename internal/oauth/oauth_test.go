@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 
 	bolt "go.etcd.io/bbolt"
 )

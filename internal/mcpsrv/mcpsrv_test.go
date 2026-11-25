@@ -13,8 +13,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/mcpsrv"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/mcpsrv"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func newServer(t *testing.T) (*ws.Manager, *mcpsrv.Server, string) {

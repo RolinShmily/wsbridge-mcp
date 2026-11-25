@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"wsbridge/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
 )
 
 // CloudflaredOptions configures a managed cloudflared tunnel subprocess.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func newSingleWorkspace(t *testing.T, rootDir string) (*ws.Manager, *ws.Workspace, string) {

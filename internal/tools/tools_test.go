@@ -15,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/tools"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/tools"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func channel(t *testing.T, configs []ws.WorkspaceConfig) (*ws.Manager, *mcp.ClientSession) {

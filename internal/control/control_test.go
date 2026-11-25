@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"wsbridge/internal/control"
+	"github.com/RolinShmily/wsbridge-mcp/internal/control"
 )
 
 func TestActiveWorkspacePersistence(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"wsbridge/internal/httpx"
+	"github.com/RolinShmily/wsbridge-mcp/internal/httpx"
 )
 
 func TestRedactHeaderValue(t *testing.T) {

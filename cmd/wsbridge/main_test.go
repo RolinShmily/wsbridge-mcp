@@ -25,11 +25,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/config"
-	"wsbridge/internal/httpx"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/service"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/httpx"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/service"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func runCLI(t *testing.T, args ...string) (code int, stdout, stderr string) {

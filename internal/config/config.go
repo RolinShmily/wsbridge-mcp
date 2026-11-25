@@ -16,7 +16,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 const (

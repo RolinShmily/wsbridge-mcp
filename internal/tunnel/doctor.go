@@ -19,8 +19,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"wsbridge/internal/config"
-	"wsbridge/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
 )
 
 // Level is the severity of a doctor check.

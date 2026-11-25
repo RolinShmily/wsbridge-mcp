@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func buildTree(t *testing.T) string {

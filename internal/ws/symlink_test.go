@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 // A symlink inside the workspace must not become a portal to a sensitive path

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"wsbridge/internal/httpx"
+	"github.com/RolinShmily/wsbridge-mcp/internal/httpx"
 )
 
 func TestBodyLimit(t *testing.T) {

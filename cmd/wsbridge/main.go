@@ -24,16 +24,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/config"
-	"wsbridge/internal/control"
-	"wsbridge/internal/httpx"
-	"wsbridge/internal/mcpsrv"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/service"
-	"wsbridge/internal/term"
-	"wsbridge/internal/tunnel"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/control"
+	"github.com/RolinShmily/wsbridge-mcp/internal/httpx"
+	"github.com/RolinShmily/wsbridge-mcp/internal/mcpsrv"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/service"
+	"github.com/RolinShmily/wsbridge-mcp/internal/term"
+	"github.com/RolinShmily/wsbridge-mcp/internal/tunnel"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 // version is overridable at build time with -ldflags "-X main.version=...".

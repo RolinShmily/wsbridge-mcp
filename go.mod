@@ -1,4 +1,4 @@
-module wsbridge
+module github.com/RolinShmily/wsbridge-mcp
 
 go 1.25.0
 

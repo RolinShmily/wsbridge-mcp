@@ -3,7 +3,7 @@ package ws_test
 import (
 	"testing"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func newTestManager(t *testing.T, configs []ws.WorkspaceConfig, opts ws.ManagerOptions) *ws.Manager {

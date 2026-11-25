@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 const authorizeErrorHTML = `<!DOCTYPE html>

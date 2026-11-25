@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
 )
 
 func TestLoggerWritesJSONLinesAndMergesFields(t *testing.T) {

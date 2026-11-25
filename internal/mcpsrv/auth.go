@@ -15,10 +15,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/tools"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/tools"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 // principalExtraKey is the TokenInfo.Extra key carrying the full grant.

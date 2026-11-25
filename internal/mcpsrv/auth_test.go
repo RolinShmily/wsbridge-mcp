@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/mcpsrv"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/mcpsrv"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 const testResource = "https://bridge.example.com/mcp"

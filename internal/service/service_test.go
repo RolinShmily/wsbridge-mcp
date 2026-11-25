@@ -3,7 +3,7 @@ package service_test
 import (
 	"testing"
 
-	"wsbridge/internal/service"
+	"github.com/RolinShmily/wsbridge-mcp/internal/service"
 )
 
 func TestConfigRunsServeWithConfigPath(t *testing.T) {

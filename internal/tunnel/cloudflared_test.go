@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
 )
 
 func TestCloudflaredTokenFileArgsAndRestart(t *testing.T) {

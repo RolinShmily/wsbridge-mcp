@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 //go:embed consent.html

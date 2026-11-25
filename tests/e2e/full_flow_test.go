@@ -1,5 +1,5 @@
 // Package e2e exercises the complete wsbridge OAuth + MCP flow against an
-// in-process HTTP server, as specified in docs/development/03-testing-and-ci.md.
+// in-process HTTP server, as specified in docs/development.md section 3.3.
 package e2e
 
 import (
@@ -22,10 +22,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/mcpsrv"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/mcpsrv"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 const testPassphrase = "e2e-administrator-passphrase"

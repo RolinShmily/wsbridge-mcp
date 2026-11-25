@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/config"
-	"wsbridge/internal/mcpsrv"
-	"wsbridge/internal/oauth"
-	"wsbridge/internal/tunnel"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/config"
+	"github.com/RolinShmily/wsbridge-mcp/internal/mcpsrv"
+	"github.com/RolinShmily/wsbridge-mcp/internal/oauth"
+	"github.com/RolinShmily/wsbridge-mcp/internal/tunnel"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 func startStack(t *testing.T) (issuer, dataDir, wsDir string, closeStack func()) {

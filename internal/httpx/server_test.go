@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"wsbridge/internal/httpx"
+	"github.com/RolinShmily/wsbridge-mcp/internal/httpx"
 )
 
 func waitForTCP(t *testing.T, addr string) {

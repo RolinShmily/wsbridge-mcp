@@ -10,9 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"wsbridge/internal/audit"
-	"wsbridge/internal/tools"
-	"wsbridge/internal/ws"
+	"github.com/RolinShmily/wsbridge-mcp/internal/audit"
+	"github.com/RolinShmily/wsbridge-mcp/internal/tools"
+	"github.com/RolinShmily/wsbridge-mcp/internal/ws"
 )
 
 // DefaultInstructions are advertised to MCP clients during initialization.
